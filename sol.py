@@ -26,16 +26,16 @@ def sql_command(query, printSchema=False):
         return ReturnValue.ERROR
     except DatabaseException.NOT_NULL_VIOLATION as e:
         print(e)
-        return ReturnValue.ERROR
+        return ReturnValue.BAD_PARAMS
     except DatabaseException.CHECK_VIOLATION as e:
         print(e)
-        return ReturnValue.ERROR
+        return ReturnValue.BAD_PARAMS
     except DatabaseException.UNIQUE_VIOLATION as e:
         print(e)
-        return ReturnValue.ERROR
+        return ReturnValue.ALREADY_EXISTS
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
         print(e)
-        return ReturnValue.ERROR
+        return ReturnValue.ERROR  # TODO - notice if this is correct
     except Exception as e:
         print(e)
     finally:
@@ -55,30 +55,38 @@ def insert(table, obj):
         return ret.ret_val
 
 
-def createTables():  # TODO - check this SQL code ↓ and also reduce to a single query (maybe using group?)
-    sql_command("CREATE TABLE TQuery(queryID INTEGER PRIMARY KEY, purpose TEXT NOT NULL, size INTEGER NOT NULL)")
-    sql_command("CREATE TABLE TRAM(ramID INTEGER PRIMARY KEY, company TEXT NOT NULL, size INTEGER NOT NULL)")
-    sql_command(
-        "CREATE TABLE TDisk(diskID INTEGER PRIMARY KEY, company TEXT NOT NULL, speed INTEGER NOT NULL, free_space INTEGER NOT NULL, cost INTEGER NOT NULL)")
+def createTables():
+    sql_command("CREATE TABLE TQuery(queryID INTEGER PRIMARY KEY NOT NULL UNIQUE CHECK(queryID > 0),\
+                purpose TEXT NOT NULL,\
+                size INTEGER NOT NULL CHECK(size >= 0));\
+                \
+                CREATE TABLE TRAM(ramID INTEGER PRIMARY KEY NOT NULL UNIQUE CHECK(ramID > 0),\
+                company TEXT NOT NULL,\
+                size INTEGER NOT NULL CHECK(size > 0));\
+                \
+                CREATE TABLE TDisk(diskID INTEGER PRIMARY KEY NOT NULL UNIQUE (diskID > 0),\
+                company TEXT NOT NULL,\
+                speed INTEGER NOT NULL (speed > 0),\
+                free_space INTEGER NOT NULL (free_space >= 0),\
+                cost INTEGER NOT NULL (cost > 0));")
+
+
+# TODO = add table that maps Quries to the disks they are on (the relation is "stored")
 
 
 def clearTables():  # TODO - check this SQL code ↓ and also reduce to a single query (maybe using group?)
-    sql_command("DELETE FROM TQuery WHERE true")
-    sql_command("DELETE FROM TRAM WHERE true")
-    sql_command("DELETE FROM TDisk WHERE true")
+    sql_command("DELETE FROM TQuery;\
+                DELETE FROM TRAM;\
+                DELETE FROM TDisk")
 
 
 def dropTables():  # TODO - check this SQL code ↓ and also reduce to a single query (maybe using grouping?)
-    sql_command("DROP TABLE IF EXISTS TQuery CASCADE")
-    sql_command("DROP TABLE IF EXISTS TRAM CASCADE")
-    sql_command("DROP TABLE IF EXISTS TDisk CASCADE")
+    sql_command("DROP TABLE IF EXISTS TQuery CASCADE;\
+                DROP TABLE IF EXISTS TRAM CASCADE;\
+                DROP TABLE IF EXISTS TDisk CASCADE")
 
 
 def addQuery(query: Query) -> ReturnValue:
-    if query.getQueryID() is None or query.getPurpose() is None or query.getSize() is None or \
-            query.getQueryID() < 1 or query.getSize() < 0:
-        return ReturnValue.BAD_PARAMS
-
     return insert("TQuery", query)
 
 
@@ -97,12 +105,7 @@ def deleteQuery(query: Query) -> ReturnValue:
 
 
 def addDisk(disk: Disk) -> ReturnValue:
-    if disk.getDiskID() is None or disk.getCompany() is None or disk.getSpeed() is None or disk.getFreeSpace() is None or disk.getCost() is None \
-            or disk.getDiskID() < 1 or disk.getSpeed() < 1 or disk.getCost() < 1 or disk.getFreeSpace() < 0:
-        return ReturnValue.BAD_PARAMS
-
     return insert("TDisk", disk)
-
 
 
 def getDiskProfile(diskID: int) -> Disk:
@@ -119,9 +122,6 @@ def deleteDisk(diskID: int) -> ReturnValue:
 
 
 def addRAM(ram: RAM) -> ReturnValue:
-    if ram.getRamID() is None or ram.getCompany() is None or ram.getSize() is None or ram.getRamID() < 1 or ram.getSize() < 1:
-        return ReturnValue.BAD_PARAMS
-
     return insert("TRAM", ram)
 
 
@@ -139,8 +139,8 @@ def deleteRAM(ramID: int) -> ReturnValue:
 
 
 def addDiskAndQuery(disk: Disk, query: Query) -> ReturnValue:
-
-    return ReturnValue.OK #TODO - need in 1 Q to assure both actions will succeed and also do them
+    return ReturnValue.OK
+    # TODO - need in 1 Q to assure both actions will succeed and also do them -> Transaction - recitation 7
 
 
 def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
