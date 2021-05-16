@@ -7,11 +7,13 @@ from Business.RAM import RAM
 from Business.Disk import Disk
 from psycopg2 import sql
 
+
 class SQLRet:
     def __init__(self, ret_val=None, rows_affected=None, result=None):
         self.ret_val = ret_val
         self.rows_affected = rows_affected
         self.result = result
+
 
 def sql_command(query, printSchema=False):
     conn = None
@@ -44,7 +46,8 @@ def sql_command(query, printSchema=False):
 
 def insert(table, obj):
     # TODO - SQL action to add the query ↓
-    ret = sql_command("INSERT INTO {} values {}".format(table, tuple(obj)))
+    ret = sql_command("INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2]))
+    # the above translates to INSERT INTO <tabke name> values (<values of the obj>)
 
     if ret.rows_affected == 0:  # lookup queryID to check that it's unique and not in DB yet
         return ReturnValue.ALREADY_EXISTS
@@ -88,7 +91,8 @@ def getQueryProfile(queryID: int) -> Query:
 
 
 def deleteQuery(query: Query) -> ReturnValue:
-    ret = sql_command("DELETE * FROM TQuery WHERE TQuery.queryID = queryID")
+    # TODO - do not forget to adjust the free space on disk if the query runs on one. Hint - think about transactions in such cases (there are more in this assignment).
+    ret = sql_command("DELETE FROM TQuery WHERE TQuery.queryID = queryID")
     return ret.ret_val
 
 
@@ -110,7 +114,7 @@ def getDiskProfile(diskID: int) -> Disk:
 
 
 def deleteDisk(diskID: int) -> ReturnValue:
-    ret = sql_command("DELETE * FROM TDisk WHERE TDisk.diskID = diskID")
+    ret = sql_command("DELETE FROM TDisk WHERE TDisk.diskID = diskID")
     return ret.ret_val
 
 
@@ -130,7 +134,7 @@ def getRAMProfile(ramID: int) -> RAM:
 
 
 def deleteRAM(ramID: int) -> ReturnValue:
-    ret = sql_command("DELETE * FROM TRAM WHERE TRAM.ramID = ramID")
+    ret = sql_command("DELETE FROM TRAM WHERE TRAM.ramID = ramID")
     return ret.ret_val
 
 
