@@ -15,12 +15,13 @@ class SQLRet:
         self.result = result
 
 
-def sql_command(query, printSchema=False):
+def sql_command(query, printSchema=False, to_commit=True):
     conn = None
     try:
         conn = Connector.DBConnector()
         rows_effected, result = conn.execute(query, printSchema)
-        conn.commit()
+        if to_commit:
+            conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
         return ReturnValue.ERROR
@@ -139,11 +140,15 @@ def deleteRAM(ramID: int) -> ReturnValue:
 
 
 def addDiskAndQuery(disk: Disk, query: Query) -> ReturnValue:
-    return ReturnValue.OK
+    # return ReturnValue.OK
     # TODO - need in 1 Q to assure both actions will succeed and also do them -> Transaction - recitation 7
     return sql_command("BEGIN; \
-        "INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2])).ret_val \
-        COMMIT;".format())
+        INSERT INTO TQuery values (" + str(query.__dict__.values())[13:-2] + ");" + \
+        "INSERT INTO TDisk values (" + str(disk.__dict__.values())[13:-2] + ");" + \
+        "COMMIT;", to_commit=False).ret_val  # TODO double commit??
+
+    # return sql_command("INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2])).ret_val
+
 
 
 def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
@@ -202,24 +207,26 @@ def getCloseQueries(queryID: int) -> List[int]:
 if __name__ == '__main__':
     dropTables()
     createTables()
-    # q = Query(1, "test", 5)
-    # addQuery(Query(1, "test", 1 * 5))
-
-    for i in range(1, 4):
-        addQuery(Query(i, "test", i*i))
-    deleteQuery(Query(2, "test", 1))
-
-    for i in range(1, 4):
-        addDisk(Disk(i, "Eil", 100, 1, 100000))
-    deleteDisk(2)
-
-    for i in range(1, 4):
-        addRAM(RAM(i, "sdfsd", 100*i))
-    deleteRAM(2)
-
-    print(getDiskProfile(1))
-    print(getQueryProfile(1))
-    print(getRAMProfile(1))
+    # # q = Query(1, "test", 5)
+    # # addQuery(Query(1, "test", 1 * 5))
+    #
+    # for i in range(1, 4):
+    #     addQuery(Query(i, "test", i*i))
+    # deleteQuery(Query(2, "test", 1))
+    #
+    # for i in range(1, 4):
+    #     addDisk(Disk(i, "Eil", 100, 1, 100000))
+    # deleteDisk(2)
+    #
+    # for i in range(1, 4):
+    #     addRAM(RAM(i, "sdfsd", 100*i))
+    # deleteRAM(2)
+    #
+    # print(getDiskProfile(1))
+    # print(getQueryProfile(1))
+    # print(getRAMProfile(1))
+    # addQuery(Query(77, "test", 1 * 5))
+    addDiskAndQuery(Disk(55, "fivefive", 555, 5555, 55555), Query(77, "seven", 7777))
 
 
 
