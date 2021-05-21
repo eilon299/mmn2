@@ -46,13 +46,13 @@ def sql_command(query, printSchema=False):
 
 def insert(table, obj):
     # TODO - SQL action to add the query ↓
-    ret = sql_command("INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2]))
+    return sql_command("INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2])).ret_val
     # the above translates to INSERT INTO <tabke name> values (<values of the obj>)
 
-    if ret.rows_affected == 0:  # lookup queryID to check that it's unique and not in DB yet
-        return ReturnValue.ALREADY_EXISTS
-    else:
-        return ret.ret_val
+    # if ret.rows_affected == 0:  # lookup queryID to check that it's unique and not in DB yet
+    #     return ReturnValue.ALREADY_EXISTS
+    # else:
+    #     return ret.ret_val
 
 
 def createTables():
@@ -64,11 +64,11 @@ def createTables():
                 company TEXT NOT NULL,\
                 size INTEGER NOT NULL CHECK(size > 0));\
                 \
-                CREATE TABLE TDisk(diskID INTEGER PRIMARY KEY NOT NULL UNIQUE (diskID > 0),\
+                CREATE TABLE TDisk(diskID INTEGER PRIMARY KEY NOT NULL UNIQUE CHECK(diskID > 0),\
                 company TEXT NOT NULL,\
-                speed INTEGER NOT NULL (speed > 0),\
-                free_space INTEGER NOT NULL (free_space >= 0),\
-                cost INTEGER NOT NULL (cost > 0));")
+                speed INTEGER NOT NULL CHECK(speed > 0),\
+                free_space INTEGER NOT NULL CHECK(free_space >= 0),\
+                cost INTEGER NOT NULL CHECK(cost > 0))")
 
 
 # TODO = add table that maps Quries to the disks they are on (the relation is "stored")
@@ -91,7 +91,7 @@ def addQuery(query: Query) -> ReturnValue:
 
 
 def getQueryProfile(queryID: int) -> Query:
-    ret = sql_command("SELECT * FROM TQuery WHERE TQuery.queryID = queryID")
+    ret = sql_command("SELECT * FROM TQuery WHERE queryID = {}".format(queryID))
     if ret.result is not None:
         return ret.result
     else:
@@ -100,7 +100,7 @@ def getQueryProfile(queryID: int) -> Query:
 
 def deleteQuery(query: Query) -> ReturnValue:
     # TODO - do not forget to adjust the free space on disk if the query runs on one. Hint - think about transactions in such cases (there are more in this assignment).
-    ret = sql_command("DELETE FROM TQuery WHERE TQuery.queryID = queryID")
+    ret = sql_command("DELETE FROM TQuery WHERE queryID = {}".format(query.getQueryID()))
     return ret.ret_val
 
 
@@ -109,7 +109,7 @@ def addDisk(disk: Disk) -> ReturnValue:
 
 
 def getDiskProfile(diskID: int) -> Disk:
-    ret = sql_command("SELECT * FROM TDisk WHERE TDisk.diskID = diskID")
+    ret = sql_command("SELECT * FROM TDisk WHERE diskID = {}".format(diskID))
     if ret.result is not None:
         return ret.result
     else:
@@ -117,7 +117,7 @@ def getDiskProfile(diskID: int) -> Disk:
 
 
 def deleteDisk(diskID: int) -> ReturnValue:
-    ret = sql_command("DELETE FROM TDisk WHERE TDisk.diskID = diskID")
+    ret = sql_command("DELETE FROM TDisk WHERE diskID = {}".format(diskID))
     return ret.ret_val
 
 
@@ -126,7 +126,7 @@ def addRAM(ram: RAM) -> ReturnValue:
 
 
 def getRAMProfile(ramID: int) -> RAM:
-    ret = sql_command("SELECT * FROM TRAM WHERE TRAM.ramID = ramID")
+    ret = sql_command("SELECT * FROM TRAM WHERE TRAM.ramID = {}".format(ramID))
     if ret.result is not None:
         return ret.result
     else:
@@ -134,13 +134,16 @@ def getRAMProfile(ramID: int) -> RAM:
 
 
 def deleteRAM(ramID: int) -> ReturnValue:
-    ret = sql_command("DELETE FROM TRAM WHERE TRAM.ramID = ramID")
+    ret = sql_command("DELETE FROM TRAM WHERE TRAM.ramID = {}".format(ramID))
     return ret.ret_val
 
 
 def addDiskAndQuery(disk: Disk, query: Query) -> ReturnValue:
     return ReturnValue.OK
     # TODO - need in 1 Q to assure both actions will succeed and also do them -> Transaction - recitation 7
+    return sql_command("BEGIN; \
+        "INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2])).ret_val \
+        COMMIT;".format())
 
 
 def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
@@ -193,3 +196,30 @@ def mostAvailableDisks() -> List[int]:
 
 def getCloseQueries(queryID: int) -> List[int]:
     return []
+
+
+
+if __name__ == '__main__':
+    dropTables()
+    createTables()
+    # q = Query(1, "test", 5)
+    # addQuery(Query(1, "test", 1 * 5))
+
+    for i in range(1, 4):
+        addQuery(Query(i, "test", i*i))
+    deleteQuery(Query(2, "test", 1))
+
+    for i in range(1, 4):
+        addDisk(Disk(i, "Eil", 100, 1, 100000))
+    deleteDisk(2)
+
+    for i in range(1, 4):
+        addRAM(RAM(i, "sdfsd", 100*i))
+    deleteRAM(2)
+
+    print(getDiskProfile(1))
+    print(getQueryProfile(1))
+    print(getRAMProfile(1))
+
+
+
