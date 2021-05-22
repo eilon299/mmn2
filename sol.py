@@ -208,11 +208,16 @@ def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
 
 
 def isCompanyExclusive(diskID: int) -> bool:
-    # ret = sql_command("SELECT COALESCE(SUM(size), 0) FROM TRAM \
-    #     WHERE ramID in (SELECT ramID FROM DR WHERE diskID = {})".format(diskID))
-    # ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR EXISTS(SELECT * FROM DR )")
-
-    return True
+    ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR \
+                        EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
+                        INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
+                        WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {}) THEN CAST(0 AS BIT) \
+                        ELSE CAST(1 AS BIT) END".format(diskID, diskID))
+    # ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) THEN CAST(0 AS BIT) \
+    #                     ELSE CAST(1 AS BIT) END".format(diskID))
+    if ret.ret_val != ReturnValue.OK:
+        return False
+    return '1' in str(ret.result)  # TODO like that??
 
 
 def getConflictingDisks() -> List[int]:
@@ -228,9 +233,52 @@ def getCloseQueries(queryID: int) -> List[int]:
 
 
 
+
+
+
+def test_isCompanyExclusive():
+    for i in range(1, 10):
+        addDisk(Disk(i, "company_"+str(i), 10*i, 100*i, 1000*i))
+        # print(getDiskProfile(i))
+        # print(isCompanyExclusive(i))
+        assert(isCompanyExclusive(i) is True)
+        addRAM(RAM(i, "company_" + str(i), i * i))
+        addRAMToDisk(i, i)
+        assert(isCompanyExclusive(i) is True)
+
+    assert(isCompanyExclusive(9999) is False)
+    assert(isCompanyExclusive(-999) is False)
+
+    for i in range(1, 10):
+        addRAM(RAM(10+i, "company_"+str(i), i*i))
+        addRAMToDisk(10+i, 1)
+    # print(isCompanyExclusive(1))
+    assert(isCompanyExclusive(1) is False)
+
+    for i in range(1, 10):
+        addRAM(RAM(100+i, "company_2", i*i))
+        addRAMToDisk(100+i, 2)
+    # print(isCompanyExclusive(2))
+    assert(isCompanyExclusive(2) is True)
+    addRAM(RAM(666, "sdjfbskdf", 66666))
+    addRAMToDisk(666, 2)
+    assert(isCompanyExclusive(2) is False)
+    removeRAMFromDisk(666, 2)
+    assert(isCompanyExclusive(2) is True)
+    addRAMToDisk(666, 2)
+    assert(isCompanyExclusive(2) is False)
+    deleteRAM(666)
+    assert(isCompanyExclusive(2) is True)
+
+    print("@@@ PASS test_isCompanyExclusive @@@")
+
+
+
 if __name__ == '__main__':
     dropTables()
     createTables()
+    test_isCompanyExclusive()
+
     # # q = Query(1, "test", 5)
     # # addQuery(Query(1, "test", 1 * 5))
     #
@@ -265,39 +313,43 @@ if __name__ == '__main__':
     # print(str((d1.__dict__.values())))
 
     # addRAMToDisk(1,2)
-    addDisk(Disk(1, "2122ed21", 1122, 2112, 212))
-    addDisk(Disk(2, "2122ed21", 1122, 2112, 212))
-    addDisk(Disk(3, "2122ed21", 1122, 2112, 212))
-    addDisk(Disk(4, "2122ed21", 1122, 2112, 212))
-    addRAM(RAM(10, "ram_comp", 1010))
-    addRAM(RAM(20, "ram_comp", 1010))
-    addRAM(RAM(30, "ram_comp", 1010))
-
-    addRAMToDisk(10,1)
-    addRAMToDisk(20,1)
-    addRAMToDisk(30,1)
-
-    addRAMToDisk(10, 2)
-    addRAMToDisk(20, 2)
-    addRAMToDisk(30, 2)
+    # addDisk(Disk(1, "2122ed21", 1122, 2112, 212))
+    # addDisk(Disk(2, "2122ed21", 1122, 2112, 212))
+    # addDisk(Disk(3, "2122ed21", 1122, 2112, 212))
+    # addDisk(Disk(4, "2122ed21", 1122, 2112, 212))
+    # addRAM(RAM(10, "ram_comp", 1010))
+    # addRAM(RAM(20, "ram_comp", 1010))
+    # addRAM(RAM(30, "ram_comp", 1010))
+    #
+    # addRAMToDisk(10,1)
+    # addRAMToDisk(20,1)
+    # addRAMToDisk(30,1)
+    #
+    # addRAMToDisk(10, 2)
+    # addRAMToDisk(20, 2)
+    # addRAMToDisk(30, 2)
 
     # # deleteRAM(30)
     # # deleteDisk(1)
     # removeRAMFromDisk(10, 2)
 
-    addDisk(Disk(333, "AAA", 3, 33, 333))
-    addRAM(RAM(7001, "ram_comp", 700))
-    addRAM(RAM(701, "ram_comp", 70))
-    addRAM(RAM(71, "ram_comp", 7))
-    addRAMToDisk(71, 333)
-    addRAMToDisk(701, 333)
-    addRAMToDisk(7001, 333)
-    print(diskTotalRAM(333))
-    removeRAMFromDisk(701, 333)
-    removeRAMFromDisk(701, 333)
-    print(diskTotalRAM(333))
-    print(diskTotalRAM(3))
+    # addDisk(Disk(333, "AAA", 3, 33, 333))
+    # addRAM(RAM(7001, "ram_comp", 700))
+    # addRAM(RAM(701, "ram_comp", 70))
+    # addRAM(RAM(71, "ram_comp", 7))
+    # addRAMToDisk(71, 333)
+    # addRAMToDisk(701, 333)
+    # addRAMToDisk(7001, 333)
+    # print(diskTotalRAM(333))
+    # removeRAMFromDisk(701, 333)
+    # removeRAMFromDisk(701, 333)
+    # print(diskTotalRAM(333))
+    # print(diskTotalRAM(3))
+    # isCompanyExclusive(3)
+    #
+    #
+    # addDisk(Disk(1234, "2122ed21", 1122, 2112, 212))
 
 
-    addDiskAndQuery(Disk(55, "fivefive", 555, 5555, 55555), Query(77, "seven", 7777))
+    # addDiskAndQuery(Disk(55, "fivefive", 555, 5555, 55555), Query(77, "seven", 7777))
 
