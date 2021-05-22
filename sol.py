@@ -36,7 +36,8 @@ def sql_command(query, printSchema=False, to_commit=True):
         return ReturnValue.ALREADY_EXISTS
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
         print(e)
-        return ReturnValue.ERROR  # TODO - notice if this is correct
+        return ReturnValue.NOT_EXISTS  # TODO - am i right?
+        # return ReturnValue.ERROR  # TODO - notice if this is correct
     except Exception as e:
         print(e)
     finally:
@@ -69,7 +70,13 @@ def createTables():
                 company TEXT NOT NULL,\
                 speed INTEGER NOT NULL CHECK(speed > 0),\
                 free_space INTEGER NOT NULL CHECK(free_space >= 0),\
-                cost INTEGER NOT NULL CHECK(cost > 0))")
+                cost INTEGER NOT NULL CHECK(cost > 0));\
+                \
+                CREATE TABLE DR(diskID INTEGER NOT NULL CHECK(diskID > 0),\
+                ramID INTEGER NOT NULL CHECK(ramID > 0), \
+                FOREIGN KEY (diskID) REFERENCES TDisk(diskID) ON DELETE CASCADE, \
+                FOREIGN KEY (ramID) REFERENCES TRAM(ramID) ON DELETE CASCADE, \
+                PRIMARY KEY (diskID, ramID), UNIQUE(diskID, ramID));")
 
 
 # TODO = add table that maps Quries to the disks they are on (the relation is "stored")
@@ -84,7 +91,8 @@ def clearTables():  # TODO - check this SQL code ↓ and also reduce to a single
 def dropTables():  # TODO - check this SQL code ↓ and also reduce to a single query (maybe using grouping?)
     sql_command("DROP TABLE IF EXISTS TQuery CASCADE;\
                 DROP TABLE IF EXISTS TRAM CASCADE;\
-                DROP TABLE IF EXISTS TDisk CASCADE")
+                DROP TABLE IF EXISTS TDisk CASCADE;\
+                DROP TABLE IF EXISTS DR CASCADE")
 
 
 def addQuery(query: Query) -> ReturnValue:
@@ -160,11 +168,15 @@ def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
 
 
 def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
-    return ReturnValue.OK
+    return sql_command("INSERT INTO DR values ({}, {})".format(diskID, ramID)).ret_val
+    # return sql_command("INSERT INTO DR values (" + str(diskID) + ", " + str(ramID) + ")").ret_val
+
 
 
 def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
-    return ReturnValue.OK
+    return sql_command("DELETE FROM DR WHERE diskID = {} AND ramID = {}".format(diskID, ramID))
+    # TODO ReturnValue, does not return NOT_EXISTS if RAM/disk does not exist or RAM is not a part of disk
+
 
 
 def averageSizeQueriesOnDisk(diskID: int) -> float:
@@ -172,11 +184,19 @@ def averageSizeQueriesOnDisk(diskID: int) -> float:
 
 
 def diskTotalRAM(diskID: int) -> int:
-    return 0
+    ret = sql_command("SELECT COALESCE(SUM(size), 0) FROM TRAM \
+        WHERE ramID in (SELECT ramID FROM DR WHERE diskID = {})".format(diskID))
 
+    if ret.result is None:  # TODO not sure about it. maybe add another warrper func for that?
+        return 0
+    elif ret.ret_val != ReturnValue.OK:
+        return -1
+    return ret.result
 
 def getCostForPurpose(purpose: str) -> int:
     return 0
+
+
 
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
@@ -188,6 +208,10 @@ def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
 
 
 def isCompanyExclusive(diskID: int) -> bool:
+    # ret = sql_command("SELECT COALESCE(SUM(size), 0) FROM TRAM \
+    #     WHERE ramID in (SELECT ramID FROM DR WHERE diskID = {})".format(diskID))
+    # ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR EXISTS(SELECT * FROM DR )")
+
     return True
 
 
@@ -226,7 +250,54 @@ if __name__ == '__main__':
     # print(getQueryProfile(1))
     # print(getRAMProfile(1))
     # addQuery(Query(77, "test", 1 * 5))
+    # q1 = Query(77, "test", 1 * 5)
+
+
+    # print(str((q1.__dict__.values()))[13:-2])
+    # print(str((q1.__dict__.values())))
+    #
+    # r1 = RAM(12, "sdfsd", 100*12)
+    # print(str((r1.__dict__.values()))[13:-2])
+    # print(str((r1.__dict__.values())))
+    #
+    # d1 = Disk(234, "Eil", 100, 1, 100000)
+    # print(str((d1.__dict__.values()))[13:-2])
+    # print(str((d1.__dict__.values())))
+
+    # addRAMToDisk(1,2)
+    addDisk(Disk(1, "2122ed21", 1122, 2112, 212))
+    addDisk(Disk(2, "2122ed21", 1122, 2112, 212))
+    addDisk(Disk(3, "2122ed21", 1122, 2112, 212))
+    addDisk(Disk(4, "2122ed21", 1122, 2112, 212))
+    addRAM(RAM(10, "ram_comp", 1010))
+    addRAM(RAM(20, "ram_comp", 1010))
+    addRAM(RAM(30, "ram_comp", 1010))
+
+    addRAMToDisk(10,1)
+    addRAMToDisk(20,1)
+    addRAMToDisk(30,1)
+
+    addRAMToDisk(10, 2)
+    addRAMToDisk(20, 2)
+    addRAMToDisk(30, 2)
+
+    # # deleteRAM(30)
+    # # deleteDisk(1)
+    # removeRAMFromDisk(10, 2)
+
+    addDisk(Disk(333, "AAA", 3, 33, 333))
+    addRAM(RAM(7001, "ram_comp", 700))
+    addRAM(RAM(701, "ram_comp", 70))
+    addRAM(RAM(71, "ram_comp", 7))
+    addRAMToDisk(71, 333)
+    addRAMToDisk(701, 333)
+    addRAMToDisk(7001, 333)
+    print(diskTotalRAM(333))
+    removeRAMFromDisk(701, 333)
+    removeRAMFromDisk(701, 333)
+    print(diskTotalRAM(333))
+    print(diskTotalRAM(3))
+
+
     addDiskAndQuery(Disk(55, "fivefive", 555, 5555, 55555), Query(77, "seven", 7777))
-
-
 
