@@ -124,7 +124,7 @@ def deleteQuery(query: Query) -> ReturnValue:
     ret = sql_command(f"BEGIN; \
                         UPDATE TDisk \
                         SET free_space = free_space + {query.getSize()} \
-                        WHERE (diskID,{query.getQueryID()}) IN DQ; \
+                        WHERE diskID IN (SELECT diskID FROM DQ WHERE queryID = {query.getQueryID()}); \
                         DELETE FROM TQuery WHERE queryID = {query.getQueryID()}; \
                         COMMIT;", to_commit=False)
 
@@ -169,12 +169,11 @@ def deleteRAM(ramID: int) -> ReturnValue:
 
 
 def addDiskAndQuery(disk: Disk, query: Query) -> ReturnValue:
-
     # TODO - what about rollback?
     return sql_command(f"BEGIN; \
                         INSERT INTO TQuery values ({str(query.__dict__.values())[13:-2]});\
                         INSERT INTO TDisk values ({str(disk.__dict__.values())[13:-2]});\
-                        COMMIT;", to_commit=False).ret_val  # TODO double commit??
+                        COMMIT;", to_commit=False).ret_val
 
     # return sql_command("BEGIN; \
     #     INSERT INTO TQuery values (" + str(query.__dict__.values())[13:-2] + ");" + \
@@ -249,13 +248,16 @@ def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
 
 
 def isCompanyExclusive(diskID: int) -> bool:
+    # ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR \
+    #                     EXISTS(SELECT * FROM TDisk INNER JOIN (SELECT * FROM DR WHERE DR.diskID = {}}) DR_tmp ON TDisk.diskID = DR_tmp.diskID \
+    #                     INNER JOIN TRAM ON DR_tmp.ramID = TRAM.ramID \
+    #                     WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {}) THEN CAST(0 AS BIT) \
+    #                     ELSE CAST(1 AS BIT) END".format(diskID, diskID, diskID))
     ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR \
                         EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
                         INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
                         WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {}) THEN CAST(0 AS BIT) \
                         ELSE CAST(1 AS BIT) END".format(diskID, diskID))
-    # ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) THEN CAST(0 AS BIT) \
-    #                     ELSE CAST(1 AS BIT) END".format(diskID))
     if ret.ret_val != ReturnValue.OK:
         return False
     return '1' in str(ret.result)  # TODO like that??
@@ -281,10 +283,10 @@ def test_isCompanyExclusive():
     for i in range(1, 10):
         addDisk(Disk(i, "company_"+str(i), 10*i, 100*i, 1000*i))
         # print(getDiskProfile(i))
-        # print(isCompanyExclusive(i))
         assert(isCompanyExclusive(i) is True)
         addRAM(RAM(i, "company_" + str(i), i * i))
         addRAMToDisk(i, i)
+
         assert(isCompanyExclusive(i) is True)
 
     assert(isCompanyExclusive(9999) is False)
@@ -312,6 +314,39 @@ def test_isCompanyExclusive():
     assert(isCompanyExclusive(2) is True)
 
     print("@@@ PASS test_isCompanyExclusive @@@")
+
+def test_deleteQuery():
+    addDisk(Disk(diskID=10, company="z", speed=100, free_space=7654321, cost=5))
+    q1 = Query(1, "test1", 1)
+    q2 = Query(2, "test2", 20)
+    q3 = Query(3, "test2", 300)
+    q4 = Query(4, "test4", 4000)
+    q5 = Query(5, "test5", 50000)
+    addQuery(q1)
+    addQuery(q2)
+    addQuery(q3)
+    addQuery(q4)
+    addQuery(q5)
+    addQueryToDisk(q1, 10)
+    addQueryToDisk(q2, 10)
+    addQueryToDisk(q3, 10)
+    deleteQuery(q3)
+    assert("7654300" in str(getDiskProfile(10)))
+    deleteQuery(q1)
+    assert("7654301" in str(getDiskProfile(10)))
+    deleteQuery(q2)
+    assert("7654321" in str(getDiskProfile(10)))
+
+    addQueryToDisk(q4, 10)
+    assert("7650321" in str(getDiskProfile(10)))
+    addQueryToDisk(q5, 10)
+    assert("7600321" in str(getDiskProfile(10)))
+    deleteQuery(q4)
+    assert("7604321" in str(getDiskProfile(10)))
+    deleteQuery(q5)
+    assert("7654321" in str(getDiskProfile(10)))
+    print("@@@ PASS test_deleteQuery @@@")
+
 
 def test_avg_q_size_on_disk():
     addDisk(Disk(diskID=10, company="z", speed=100, free_space=80, cost=5))
@@ -352,9 +387,9 @@ def test_avg_q_size_on_disk():
 if __name__ == '__main__':
     dropTables()
     createTables()
-    # test_isCompanyExclusive()
-    test_avg_q_size_on_disk()
-
+    test_isCompanyExclusive()
+    # test_avg_q_size_on_disk()
+    # test_deleteQuery()
 
 
     # # q = Query(1, "test", 5)
