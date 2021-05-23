@@ -17,6 +17,8 @@ class SQLRet:
 
 def sql_command(query, printSchema=False, to_commit=True):
     conn = None
+    rows_effected = None
+    result = None
     try:
         conn = Connector.DBConnector()
         rows_effected, result = conn.execute(query, printSchema)
@@ -24,26 +26,26 @@ def sql_command(query, printSchema=False, to_commit=True):
             conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
-        return ReturnValue.ERROR
+        return SQLRet(ReturnValue.ERROR)
     except DatabaseException.NOT_NULL_VIOLATION as e:
         print(e)
-        return ReturnValue.BAD_PARAMS
+        return SQLRet(ReturnValue.BAD_PARAMS)
     except DatabaseException.CHECK_VIOLATION as e:
         print(e)
-        return ReturnValue.BAD_PARAMS
+        return SQLRet(ReturnValue.BAD_PARAMS)
     except DatabaseException.UNIQUE_VIOLATION as e:
         print(e)
-        return ReturnValue.ALREADY_EXISTS
+        return SQLRet(ReturnValue.ALREADY_EXISTS)
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
         print(e)
-        return ReturnValue.NOT_EXISTS  # TODO - am i right?
+        return SQLRet(ReturnValue.NOT_EXISTS)  # TODO - am i right?
         # return ReturnValue.ERROR  # TODO - notice if this is correct
     except Exception as e:
         print(e)
     finally:
         # will happen any way after try termination or exception handling
         conn.close()
-        return SQLRet(ReturnValue.OK, rows_effected, result)
+    return SQLRet(ReturnValue.OK, rows_effected, result)
 
 
 def insert(table, obj):
@@ -59,24 +61,33 @@ def insert(table, obj):
 
 def createTables():
     sql_command("CREATE TABLE TQuery(queryID INTEGER PRIMARY KEY NOT NULL UNIQUE CHECK(queryID > 0),\
-                purpose TEXT NOT NULL,\
-                size INTEGER NOT NULL CHECK(size >= 0));\
+                                    purpose TEXT NOT NULL,\
+                                    size INTEGER NOT NULL CHECK(size >= 0));\
                 \
                 CREATE TABLE TRAM(ramID INTEGER PRIMARY KEY NOT NULL UNIQUE CHECK(ramID > 0),\
-                company TEXT NOT NULL,\
-                size INTEGER NOT NULL CHECK(size > 0));\
+                                    company TEXT NOT NULL,\
+                                    size INTEGER NOT NULL CHECK(size > 0));\
                 \
                 CREATE TABLE TDisk(diskID INTEGER PRIMARY KEY NOT NULL UNIQUE CHECK(diskID > 0),\
-                company TEXT NOT NULL,\
-                speed INTEGER NOT NULL CHECK(speed > 0),\
-                free_space INTEGER NOT NULL CHECK(free_space >= 0),\
-                cost INTEGER NOT NULL CHECK(cost > 0));\
+                                    company TEXT NOT NULL,\
+                                    speed INTEGER NOT NULL CHECK(speed > 0),\
+                                    free_space INTEGER NOT NULL CHECK(free_space >= 0),\
+                                    cost INTEGER NOT NULL CHECK(cost > 0));\
                 \
                 CREATE TABLE DR(diskID INTEGER NOT NULL CHECK(diskID > 0),\
-                ramID INTEGER NOT NULL CHECK(ramID > 0), \
-                FOREIGN KEY (diskID) REFERENCES TDisk(diskID) ON DELETE CASCADE, \
-                FOREIGN KEY (ramID) REFERENCES TRAM(ramID) ON DELETE CASCADE, \
-                PRIMARY KEY (diskID, ramID), UNIQUE(diskID, ramID));")
+                                ramID INTEGER NOT NULL CHECK(ramID > 0), \
+                                FOREIGN KEY (diskID) REFERENCES TDisk(diskID) ON DELETE CASCADE, \
+                                FOREIGN KEY (ramID) REFERENCES TRAM(ramID) ON DELETE CASCADE, \
+                                PRIMARY KEY (diskID, ramID), UNIQUE(diskID, ramID));\
+                \
+                CREATE TABLE DQ(diskID INTEGER NOT NULL CHECK(diskID > 0),\
+                                queryID INTEGER NOT NULL CHECK(queryID > 0), \
+                                FOREIGN KEY (diskID) REFERENCES TDisk(diskID) ON DELETE CASCADE, \
+                                FOREIGN KEY (queryID) REFERENCES TQuery(queryID) ON DELETE CASCADE, \
+                                PRIMARY KEY (diskID, queryID), UNIQUE(diskID, queryID));")
+
+
+
 
 
 # TODO = add table that maps Quries to the disks they are on (the relation is "stored")
@@ -92,7 +103,8 @@ def dropTables():  # TODO - check this SQL code ↓ and also reduce to a single 
     sql_command("DROP TABLE IF EXISTS TQuery CASCADE;\
                 DROP TABLE IF EXISTS TRAM CASCADE;\
                 DROP TABLE IF EXISTS TDisk CASCADE;\
-                DROP TABLE IF EXISTS DR CASCADE")
+                DROP TABLE IF EXISTS DR CASCADE;\
+                DROP TABLE IF EXISTS DQ CASCADE")
 
 
 def addQuery(query: Query) -> ReturnValue:
@@ -109,7 +121,13 @@ def getQueryProfile(queryID: int) -> Query:
 
 def deleteQuery(query: Query) -> ReturnValue:
     # TODO - do not forget to adjust the free space on disk if the query runs on one. Hint - think about transactions in such cases (there are more in this assignment).
-    ret = sql_command("DELETE FROM TQuery WHERE queryID = {}".format(query.getQueryID()))
+    ret = sql_command(f"BEGIN; \
+                        UPDATE TDisk \
+                        SET free_space = free_space + {query.getSize()} \
+                        WHERE (diskID,{query.getQueryID()}) IN DQ; \
+                        DELETE FROM TQuery WHERE queryID = {query.getQueryID()}; \
+                        COMMIT;", to_commit=False)
+
     return ret.ret_val
 
 
@@ -126,7 +144,9 @@ def getDiskProfile(diskID: int) -> Disk:
 
 
 def deleteDisk(diskID: int) -> ReturnValue:
-    ret = sql_command("DELETE FROM TDisk WHERE diskID = {}".format(diskID))
+    ret = sql_command(f"DELETE FROM TDisk WHERE diskID = {diskID}") #;\
+                        # DELETE FROM DR WHERE diskID = {diskID};\
+                        # DELETE FROM DQ WHERE diskID = {diskID};")
     return ret.ret_val
 
 
@@ -143,28 +163,50 @@ def getRAMProfile(ramID: int) -> RAM:
 
 
 def deleteRAM(ramID: int) -> ReturnValue:
-    ret = sql_command("DELETE FROM TRAM WHERE TRAM.ramID = {}".format(ramID))
+    ret = sql_command(f"DELETE FROM TRAM WHERE TRAM.ramID = {ramID}") #; \
+                        #DELETE FROM DR WHERE ramID = {ramID};")
     return ret.ret_val
 
 
 def addDiskAndQuery(disk: Disk, query: Query) -> ReturnValue:
-    # return ReturnValue.OK
-    # TODO - need in 1 Q to assure both actions will succeed and also do them -> Transaction - recitation 7
-    return sql_command("BEGIN; \
-        INSERT INTO TQuery values (" + str(query.__dict__.values())[13:-2] + ");" + \
-        "INSERT INTO TDisk values (" + str(disk.__dict__.values())[13:-2] + ");" + \
-        "COMMIT;", to_commit=False).ret_val  # TODO double commit??
 
-    # return sql_command("INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2])).ret_val
+    # TODO - what about rollback?
+    return sql_command(f"BEGIN; \
+                        INSERT INTO TQuery values ({str(query.__dict__.values())[13:-2]});\
+                        INSERT INTO TDisk values ({str(disk.__dict__.values())[13:-2]});\
+                        COMMIT;", to_commit=False).ret_val  # TODO double commit??
 
+    # return sql_command("BEGIN; \
+    #     INSERT INTO TQuery values (" + str(query.__dict__.values())[13:-2] + ");" + \
+    #     "INSERT INTO TDisk values (" + str(disk.__dict__.values())[13:-2] + ");" + \
+    #     "COMMIT;", to_commit=False).ret_val  # TODO double commit??
+
+
+class pair:
+    def __init__(self, x=None, y=None):
+        self.__x = x
+        self.__y = y
 
 
 def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
-    return ReturnValue.OK
+
+    obj = pair(diskID, query.getQueryID())
+    return sql_command("BEGIN; \
+                        INSERT INTO DQ values ({}); \
+                        UPDATE TDisk \
+                        SET free_space = free_space - {} \
+                        WHERE diskID = {}; \
+                        COMMIT;".format(str((obj.__dict__.values()))[13:-2], query.getSize(), diskID), to_commit=False).ret_val
 
 
 def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
-    return ReturnValue.OK
+
+    return sql_command(f"BEGIN; \
+                        DELETE FROM DQ WHERE queryID = {query.getQueryID()} AND diskID = {diskID}; \
+                        UPDATE TDisk \
+                        SET free_space = free_space + {query.getSize()} \
+                        WHERE diskID = {diskID}; \
+                        COMMIT;", to_commit=False).ret_val
 
 
 def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
@@ -172,31 +214,30 @@ def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
     # return sql_command("INSERT INTO DR values (" + str(diskID) + ", " + str(ramID) + ")").ret_val
 
 
-
 def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
     return sql_command("DELETE FROM DR WHERE diskID = {} AND ramID = {}".format(diskID, ramID))
     # TODO ReturnValue, does not return NOT_EXISTS if RAM/disk does not exist or RAM is not a part of disk
 
 
-
-def averageSizeQueriesOnDisk(diskID: int) -> float:
-    return 0
+def averageSizeQueriesOnDisk(diskID: int) -> float: # checked - GOOD
+    return sql_command("SELECT AVG(size) as Average_Size_Queries_On_Disk\
+                       FROM DQ NATURAL JOIN TQuery \
+                       WHERE diskID = diskID").result
 
 
 def diskTotalRAM(diskID: int) -> int:
     ret = sql_command("SELECT COALESCE(SUM(size), 0) FROM TRAM \
         WHERE ramID in (SELECT ramID FROM DR WHERE diskID = {})".format(diskID))
 
-    if ret.result is None:  # TODO not sure about it. maybe add another warrper func for that?
+    if ret.result is None:  # TODO not sure about it. maybe add another wrapper func for that?
         return 0
     elif ret.ret_val != ReturnValue.OK:
         return -1
     return ret.result
 
+
 def getCostForPurpose(purpose: str) -> int:
     return 0
-
-
 
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
@@ -272,12 +313,49 @@ def test_isCompanyExclusive():
 
     print("@@@ PASS test_isCompanyExclusive @@@")
 
+def test_avg_q_size_on_disk():
+    addDisk(Disk(diskID=10, company="z", speed=100, free_space=80, cost=5))
+    q1 = Query(1, "test1", 3)
+    q2 = Query(2, "test2", 4)
+    q3 = Query(3, "test2", 50)
+    q4 = Query(5, "test4", 10)
+
+    addQuery(q1)
+    addQuery(q2)
+    addQuery(q3)
+    addQueryToDisk(q1, 10)
+    addQueryToDisk(q2, 10)
+    addQueryToDisk(q3, 10)
+    x = averageSizeQueriesOnDisk(10)
+    assert("19.00000000" in str(x))
+    deleteQuery(q2)
+    x = averageSizeQueriesOnDisk(10)
+    assert("26.50" in str(x))
+
+    addQuery(q4)
+    addQueryToDisk(q4, 10)
+    x = averageSizeQueriesOnDisk(10)
+    assert("21.00" in str(x))
+    # removeQueryFromDisk(q2, 10)  # nothing happens
+    x = averageSizeQueriesOnDisk(10)
+    assert("21.00" in str(x))
+
+    removeQueryFromDisk(q1, 10)
+    x = averageSizeQueriesOnDisk(10)
+    assert("30.00" in str(x))
+
+    print("test_avg_q_size_on_disk - SUCCESS")
+
+
 
 
 if __name__ == '__main__':
     dropTables()
     createTables()
-    test_isCompanyExclusive()
+    # test_isCompanyExclusive()
+    test_avg_q_size_on_disk()
+
+
 
     # # q = Query(1, "test", 5)
     # # addQuery(Query(1, "test", 1 * 5))
