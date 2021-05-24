@@ -25,18 +25,28 @@ def sql_command(query, printSchema=False, to_commit=True):
         if to_commit:
             conn.commit()
     except DatabaseException.ConnectionInvalid as e:
+        if not to_commit:
+            conn.rollback()
         print(e)
         return SQLRet(ReturnValue.ERROR)
     except DatabaseException.NOT_NULL_VIOLATION as e:
+        if not to_commit:
+            conn.rollback()
         print(e)
         return SQLRet(ReturnValue.BAD_PARAMS)
     except DatabaseException.CHECK_VIOLATION as e:
+        if not to_commit:
+            conn.rollback()
         print(e)
         return SQLRet(ReturnValue.BAD_PARAMS)
     except DatabaseException.UNIQUE_VIOLATION as e:
+        if not to_commit:
+            conn.rollback()
         print(e)
         return SQLRet(ReturnValue.ALREADY_EXISTS)
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
+        if not to_commit:
+            conn.rollback()
         print(e)
         return SQLRet(ReturnValue.NOT_EXISTS)  # TODO - am i right?
         # return ReturnValue.ERROR  # TODO - notice if this is correct
@@ -104,7 +114,7 @@ def dropTables():  # TODO - check this SQL code ↓ and also reduce to a single 
                 DROP TABLE IF EXISTS TRAM CASCADE;\
                 DROP TABLE IF EXISTS TDisk CASCADE;\
                 DROP TABLE IF EXISTS DR CASCADE;\
-                DROP TABLE IF EXISTS DQ CASCADE")
+                DROP TABLE IF EXISTS DQ CASCADE;")
 
 
 def addQuery(query: Query) -> ReturnValue:
@@ -127,7 +137,6 @@ def deleteQuery(query: Query) -> ReturnValue:
                         WHERE diskID IN (SELECT diskID FROM DQ WHERE queryID = {query.getQueryID()}); \
                         DELETE FROM TQuery WHERE queryID = {query.getQueryID()}; \
                         COMMIT;", to_commit=False)
-
     return ret.ret_val
 
 
@@ -147,6 +156,8 @@ def deleteDisk(diskID: int) -> ReturnValue:
     ret = sql_command(f"DELETE FROM TDisk WHERE diskID = {diskID}") #;\
                         # DELETE FROM DR WHERE diskID = {diskID};\
                         # DELETE FROM DQ WHERE diskID = {diskID};")
+    if ret.rows_affected == 0:
+        return ReturnValue.NOT_EXISTS
     return ret.ret_val
 
 
@@ -165,6 +176,8 @@ def getRAMProfile(ramID: int) -> RAM:
 def deleteRAM(ramID: int) -> ReturnValue:
     ret = sql_command(f"DELETE FROM TRAM WHERE TRAM.ramID = {ramID}") #; \
                         #DELETE FROM DR WHERE ramID = {ramID};")
+    if ret.rows_affected == 0:
+        return ReturnValue.NOT_EXISTS
     return ret.ret_val
 
 
@@ -219,9 +232,10 @@ def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
 
 
 def averageSizeQueriesOnDisk(diskID: int) -> float: # checked - GOOD
-    return sql_command("SELECT AVG(size) as Average_Size_Queries_On_Disk\
-                       FROM DQ NATURAL JOIN TQuery \
-                       WHERE diskID = diskID").result
+    ret = sql_command(f"SELECT CAST(AVG(size) AS FLOAT)\
+                       FROM DQ  NATURAL JOIN TQuery \
+                       WHERE diskID = {diskID}")
+    return ret.result
 
 
 def diskTotalRAM(diskID: int) -> int:
@@ -240,11 +254,19 @@ def getCostForPurpose(purpose: str) -> int:
 
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
-    return []
+    ret = sql_command(f"SELECT queryID\
+                        FROM TQuery, (SELECT free_space FROM TDisk WHERE diskID = {diskID}) as Temp\
+                        WHERE size <= free_space\
+                        LIMIT 5")
+    return ret.result  # TODO - return a list!
 
 
 def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
-    return []
+    ret = sql_command(f"SELECT queryID\
+                            FROM TQuery, (SELECT free_space FROM TDisk WHERE diskID = {diskID}) as Temp\
+                            WHERE size <= free_space AND size <= (SELECT SUM(size) FROM DR NATURAL JOIN TRAM WHERE diskID = {diskID})\
+                            LIMIT 5")
+    return ret.result  # TODO - return a list!
 
 
 def isCompanyExclusive(diskID: int) -> bool:
@@ -268,7 +290,23 @@ def getConflictingDisks() -> List[int]:
 
 
 def mostAvailableDisks() -> List[int]:
-    return []
+    sql_command("CREATE VIEW DiskQRunnable AS \
+                    SELECT diskID, speed, queryID \
+                    FROM TQuery, TDisk \
+                    WHERE size <= free_space \
+                    ORDER BY diskID")
+
+    ret = sql_command("SELECT diskID \
+                        FROM (  SELECT diskID, COUNT(diskID), speed\
+                                FROM DiskQRunnable\
+                                GROUP BY (diskID, speed) \
+                                ORDER BY count DESC, speed DESC, diskID ASC ) AS Sub\
+                        LIMIT 5")
+
+    sql_command("DROP VIEW DiskQRunnable")
+
+    return ret.result  # TODO - return a list!
+    # return []
 
 
 def getCloseQueries(queryID: int) -> List[int]:
@@ -358,28 +396,82 @@ def test_avg_q_size_on_disk():
     addQuery(q1)
     addQuery(q2)
     addQuery(q3)
+
     addQueryToDisk(q1, 10)
     addQueryToDisk(q2, 10)
     addQueryToDisk(q3, 10)
+
     x = averageSizeQueriesOnDisk(10)
-    assert("19.00000000" in str(x))
+    assert("19" in str(x))
     deleteQuery(q2)
     x = averageSizeQueriesOnDisk(10)
-    assert("26.50" in str(x))
-
+    assert("26.5" in str(x))
     addQuery(q4)
     addQueryToDisk(q4, 10)
     x = averageSizeQueriesOnDisk(10)
-    assert("21.00" in str(x))
+    assert("21" in str(x))
     # removeQueryFromDisk(q2, 10)  # nothing happens
     x = averageSizeQueriesOnDisk(10)
-    assert("21.00" in str(x))
+    assert("21" in str(x))
 
     removeQueryFromDisk(q1, 10)
     x = averageSizeQueriesOnDisk(10)
-    assert("30.00" in str(x))
+    assert("30" in str(x))
 
     print("test_avg_q_size_on_disk - SUCCESS")
+
+def can_be_added_ram_test():
+
+    d1 = Disk(diskID=7, company="z", speed=100, free_space=80, cost=5)
+    d2 = Disk(diskID=13, company="z", speed=100, free_space=40, cost=5)
+    d3 = Disk(diskID=1, company="z", speed=100, free_space=2, cost=5)
+    d4 = Disk(diskID=2, company="z", speed=100, free_space=3, cost=5)
+    d5 = Disk(diskID=3, company="z", speed=100, free_space=4, cost=5)
+    d6 = Disk(diskID=4, company="z", speed=100, free_space=11, cost=5)
+    d7 = Disk(diskID=5, company="z", speed=90, free_space=51, cost=5)
+
+    addDisk(d1)
+    addDisk(d2)
+    addDisk(d3)
+    addDisk(d4)
+    addDisk(d5)
+    addDisk(d6)
+    addDisk(d7)
+
+
+    q1 = Query(1, "test1", 3)
+    q2 = Query(2, "test2", 4)
+    q3 = Query(3, "test2", 50)
+    q4 = Query(4, "test4", 10)
+    addQuery(q1)
+    addQuery(q2)
+    addQuery(q3)
+    addQuery(q4)
+
+    r1 = RAM(ramID=1, company='z', size=3)
+    r2 = RAM(ramID=2, company='t', size=30)
+    r3 = RAM(ramID=3, company='k', size=50)
+    addRAM(r1)
+    addRAM(r2)
+    addRAM(r3)
+
+    print(getQueriesCanBeAddedToDiskAndRAM(7))
+    print(getQueriesCanBeAddedToDiskAndRAM(13))
+
+    print("after 1st")
+
+    addRAMToDisk(1,7)
+    addRAMToDisk(1,13)
+    print(getQueriesCanBeAddedToDiskAndRAM(7))
+    print(getQueriesCanBeAddedToDiskAndRAM(13))
+
+    print("after 2nd")
+    addRAMToDisk(3,7)
+    addRAMToDisk(2,13)
+    print(getQueriesCanBeAddedToDiskAndRAM(7))
+    print(getQueriesCanBeAddedToDiskAndRAM(13))
+
+    print("after 3rd")
 
 
 
@@ -387,82 +479,8 @@ def test_avg_q_size_on_disk():
 if __name__ == '__main__':
     dropTables()
     createTables()
-    test_isCompanyExclusive()
+    # test_isCompanyExclusive()
     # test_avg_q_size_on_disk()
     # test_deleteQuery()
-
-
-    # # q = Query(1, "test", 5)
-    # # addQuery(Query(1, "test", 1 * 5))
-    #
-    # for i in range(1, 4):
-    #     addQuery(Query(i, "test", i*i))
-    # deleteQuery(Query(2, "test", 1))
-    #
-    # for i in range(1, 4):
-    #     addDisk(Disk(i, "Eil", 100, 1, 100000))
-    # deleteDisk(2)
-    #
-    # for i in range(1, 4):
-    #     addRAM(RAM(i, "sdfsd", 100*i))
-    # deleteRAM(2)
-    #
-    # print(getDiskProfile(1))
-    # print(getQueryProfile(1))
-    # print(getRAMProfile(1))
-    # addQuery(Query(77, "test", 1 * 5))
-    # q1 = Query(77, "test", 1 * 5)
-
-
-    # print(str((q1.__dict__.values()))[13:-2])
-    # print(str((q1.__dict__.values())))
-    #
-    # r1 = RAM(12, "sdfsd", 100*12)
-    # print(str((r1.__dict__.values()))[13:-2])
-    # print(str((r1.__dict__.values())))
-    #
-    # d1 = Disk(234, "Eil", 100, 1, 100000)
-    # print(str((d1.__dict__.values()))[13:-2])
-    # print(str((d1.__dict__.values())))
-
-    # addRAMToDisk(1,2)
-    # addDisk(Disk(1, "2122ed21", 1122, 2112, 212))
-    # addDisk(Disk(2, "2122ed21", 1122, 2112, 212))
-    # addDisk(Disk(3, "2122ed21", 1122, 2112, 212))
-    # addDisk(Disk(4, "2122ed21", 1122, 2112, 212))
-    # addRAM(RAM(10, "ram_comp", 1010))
-    # addRAM(RAM(20, "ram_comp", 1010))
-    # addRAM(RAM(30, "ram_comp", 1010))
-    #
-    # addRAMToDisk(10,1)
-    # addRAMToDisk(20,1)
-    # addRAMToDisk(30,1)
-    #
-    # addRAMToDisk(10, 2)
-    # addRAMToDisk(20, 2)
-    # addRAMToDisk(30, 2)
-
-    # # deleteRAM(30)
-    # # deleteDisk(1)
-    # removeRAMFromDisk(10, 2)
-
-    # addDisk(Disk(333, "AAA", 3, 33, 333))
-    # addRAM(RAM(7001, "ram_comp", 700))
-    # addRAM(RAM(701, "ram_comp", 70))
-    # addRAM(RAM(71, "ram_comp", 7))
-    # addRAMToDisk(71, 333)
-    # addRAMToDisk(701, 333)
-    # addRAMToDisk(7001, 333)
-    # print(diskTotalRAM(333))
-    # removeRAMFromDisk(701, 333)
-    # removeRAMFromDisk(701, 333)
-    # print(diskTotalRAM(333))
-    # print(diskTotalRAM(3))
-    # isCompanyExclusive(3)
-    #
-    #
-    # addDisk(Disk(1234, "2122ed21", 1122, 2112, 212))
-
-
-    # addDiskAndQuery(Disk(55, "fivefive", 555, 5555, 55555), Query(77, "seven", 7777))
+    can_be_added_ram_test()
 
