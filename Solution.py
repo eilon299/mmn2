@@ -117,14 +117,13 @@ def dropTables():  # TODO - check this SQL code ↓ and also reduce to a single 
                 DROP TABLE IF EXISTS DQ CASCADE;")
 
 
-def addQuery(query: Query) -> ReturnValue:  # TODO
+def addQuery(query: Query) -> ReturnValue:  # TODO we need to talk about that...
     q = sql.SQL("INSERT INTO TQuery(queryID, purpose, size) VALUES({i}, {p}, {s})").format(
         i=sql.Literal(query.getQueryID()), p=sql.Literal(query.getPurpose()), s=sql.Literal(query.getSize()))
-    # print(str(q))
     return sql_command(q)
-    # return insert("TQuery", query)
+    # print(str(q))
+    # return insert("TQuery", query)  # TODO this way we cant read and compare properly TEXT values in tables
     # return sql_command("INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2])).ret_val
-
 
 
 def getQueryProfile(queryID: int) -> Query:
@@ -256,21 +255,6 @@ def diskTotalRAM(diskID: int) -> int:
 
 
 def getCostForPurpose(purpose: str) -> int:
-    # ret = sql_command(sql.SQL("SELECT * FROM TQuery WHERE purpose = {p_t}").format(p_t=sql.Literal(purpose)))  # this works!
-
-    # query = sql.SQL("INSERT INTO Users(id, name) VALUES({id}, {username})").format(id=sql.Literal(ID), username=sql.Literal(name))
-
-    # ret = sql_command("SELECT * FROM TQuery \
-    #                         WHERE purpose = {}".format("A"))
-
-    # ret = sql_command("SELECT * FROM TQuery \
-    #                         WHERE purpose = {}".format("A"))
-
-    # ret = sql_command("SELECT TDisk.cost, TQuery.size, TDisk.cost*TQuery.size AS TmpCalc FROM \
-    #                  TDisk INNER JOIN DQ ON TDisk.diskID = DQ.diskID \
-    #                 INNER JOIN TQuery ON DQ.queryID = TQuery.queryID \
-    #                 WHERE TQuery.purpose = {}".format(purpose))
-
     ret = sql_command(sql.SQL("SELECT COALESCE(SUM(TmpTable.TmpCalc), 0) AS CostForPurpose FROM \
                 (SELECT TDisk.cost, TQuery.size, TDisk.cost*TQuery.size AS TmpCalc FROM \
                  TDisk INNER JOIN DQ ON TDisk.diskID = DQ.diskID \
@@ -281,13 +265,8 @@ def getCostForPurpose(purpose: str) -> int:
         return 0
     elif ret.ret_val != ReturnValue.OK:
         return -1
-    return ret.result
-    #
-    # ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR \
-    #                         EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
-    #                         INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
-    #                         WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {}) THEN CAST(0 AS BIT) \
-    #                         ELSE CAST(1 AS BIT) END".format(diskID, diskID))
+    # return ret.result
+    return int(str(ret.result).replace(' ', '').split('\n')[1])  # TODO what ??
 
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
@@ -308,19 +287,19 @@ def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
 
 def isCompanyExclusive(diskID: int) -> bool:  # TODO drop the case and when
     # ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR \
-    #                     EXISTS(SELECT * FROM TDisk INNER JOIN (SELECT * FROM DR WHERE DR.diskID = {}}) AS DR_tmp ON TDisk.diskID = DR_tmp.diskID \
-    #                     INNER JOIN TRAM ON DR_tmp.ramID = TRAM.ramID \
+    #                     EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
+    #                     INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
     #                     WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {}) THEN CAST(0 AS BIT) \
-    #                     ELSE CAST(1 AS BIT) END".format(diskID, diskID, diskID))
+    #                     ELSE CAST(1 AS BIT) END".format(diskID, diskID))
 
-    ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR \
-                        EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
+    ret = sql_command("SELECT EXISTS(SELECT * FROM TDisk WHERE diskID = {id}) AND \
+                        NOT EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
                         INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
-                        WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {}) THEN CAST(0 AS BIT) \
-                        ELSE CAST(1 AS BIT) END".format(diskID, diskID))
+                        WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {id})".format(id=diskID))
+
     if ret.ret_val != ReturnValue.OK:
         return False
-    return '1' in str(ret.result)  # TODO like that??
+    return 'True' in str(ret.result)  # TODO what ??
 
 
 def getConflictingDisks() -> List[int]:
@@ -350,43 +329,20 @@ def mostAvailableDisks() -> List[int]:
 
 
 def getCloseQueries(queryID: int) -> List[int]:  # TODO
-
-    print(sql_command("SELECT queryID FROM (SELECT TQuery.queryID, \
+    q = sql.SQL("SELECT queryID FROM (SELECT TQuery.queryID, \
                             (SELECT COALESCE(COUNT(diskID), 0) \
                             FROM DQ \
                             WHERE DQ.queryID = TQuery.queryID AND \
-                                DQ.diskID in (SELECT diskID FROM DQ WHERE queryID = {}) \
+                                DQ.diskID in (SELECT diskID FROM DQ WHERE queryID = {id}) \
                             ) AS sharedDisks \
                     FROM TQuery) AS tmpT \
-                    WHERE queryID <> {} AND \
-                      sharedDisks >= (SELECT COUNT(*) \
-                                        FROM DQ WHERE queryID = {})*0.5".format(queryID, queryID, queryID)).result)
+                    WHERE queryID <> {id} AND \
+                        sharedDisks >= (SELECT COUNT(*) \
+                                        FROM DQ WHERE queryID = {id})*0.5 \
+                    ORDER BY tmpT.queryID LIMIT 10").format(id=sql.Literal(queryID))
+    ret = sql_command(q)
 
-    print(sql_command("SELECT TQuery.queryID, \
-                            (SELECT COALESCE(COUNT(diskID), 0) \
-                            FROM DQ \
-                            WHERE DQ.queryID = TQuery.queryID AND \
-                                DQ.diskID in (SELECT diskID FROM DQ WHERE queryID = {}) \
-                            ) AS tmpT \
-                    FROM TQuery".format(queryID)).result)
-
-
-
-
-    # print(sql_command("SELECT COUNT(*) FROM DQ WHERE DQ.queryID = {}".format(queryID)).result)
-    # print(sql_command("SELECT queryID, \
-    #                                 (SELECT COUNT(diskID) FROM DQ \
-    #                                  WHERE queryID in ()) FROM TQuery WHERE  in (SELECT diskID FROM DQ WHERE queryID = {}) GROUP BY queryID".format(queryID)).result)
-
-    # print(sql_command("SELECT queryID, COUNT(diskID) FROM DQ WHERE diskID in (SELECT diskID FROM DQ WHERE queryID = {}) GROUP BY queryID".format(queryID)).result)
-    # print(sql_command("SELECT TmpT.queryID FROM (SELECT * FROM TQuery) AS TmpT WHERE TmpT.queryID > (SELECT COUNT(*) FROM DQ WHERE queryID = {})".format(queryID)).result)
-
-    ret = sql_command("SELECT A.queryID FROM DQ A INNER JOIN DQ B ON A.diskID = B.diskID \
-                          WHERE A.queryID <> {} AND B.queryID = {} \
-                          GROUP BY A.queryID \
-                          HAVING COUNT(A.diskID) >= (SELECT COUNT(*) FROM DQ WHERE DQ.queryID = {}) /2 \
-                          ORDER BY A.queryID LIMIT 10".format(queryID, queryID, queryID))
-    return ret.result
+    return [int(x) for x in str(ret.result).replace(' ','').split('\n')[1:-1]]  # TODO what?
 
 
 def test_getCloseQueries():
@@ -404,14 +360,16 @@ def test_getCloseQueries():
     addQueryToDisk(q2, 3)
     addQueryToDisk(q2, 4)
 
-    print(getCloseQueries(1))
-    print("@@@ PASS test_getCloseQueries @@@")
-
+    assert (getCloseQueries(1) == [2])
+    assert (getCloseQueries(2) == [])
+    assert (getCloseQueries(3) == [1, 2])
+    assert (getCloseQueries(666) == [1, 2, 3])
+    print("@@@ PASS test_getCloseQueries @@@" + " however, wait for more tests...")
 
 
 def test_getCostForPurpose():
     for i in range(1, 10):
-        addDisk(Disk(i, "company_" + str(i), 10 * i, 100 * i, 1000 * i))
+        addDisk(Disk(i, "company_" + str(i), 10 * i, 100 * i, 10))
     # for i in range(1,10):
     #     addQuery(Query(i, "A", i))
 
@@ -421,15 +379,20 @@ def test_getCostForPurpose():
     addQuery(q2)
     q3 = Query(3, "Aaa", 30)
     addQuery(q3)
-    q4 = Query(4, "B", 4000)
+    q4 = Query(4, "B", 40)
     addQuery(q4)
-    q5 = Query(5, "B", 50000)
+    q5 = Query(5, "B", 50)
     addQuery(q5)
 
     addQueryToDisk(q1, 1)
     addQueryToDisk(q2, 1)
-    addQueryToDisk(q3, 1)
-    print(getCostForPurpose("Aaa")) # TODO
+    addQueryToDisk(q3, 2)
+    addQueryToDisk(q4, 1)
+    addQueryToDisk(q5, 2)
+    # print(getCostForPurpose("Aaa"))
+    assert(getCostForPurpose("Aaa") == 510)
+    assert(getCostForPurpose("B") == 900)
+    print("@@@ PASS test_getCostForPurpose @@@" + " however, wait for more tests...")
 
 
 def test_getConflictingDisks():
@@ -473,7 +436,6 @@ def test_isCompanyExclusive():
         assert(isCompanyExclusive(i) is True)
         addRAM(RAM(i, "company_" + str(i), i * i))
         addRAMToDisk(i, i)
-
         assert(isCompanyExclusive(i) is True)
 
     assert(isCompanyExclusive(9999) is False)
@@ -628,10 +590,10 @@ def can_be_added_ram_test():
 if __name__ == '__main__':
     dropTables()
     createTables()
-    test_getCloseQueries()
+    # test_getCloseQueries()
     # test_getCostForPurpose()
     # test_getConflictingDisks()
-    # test_isCompanyExclusive()
+    test_isCompanyExclusive()
     # test_avg_q_size_on_disk()
     # test_deleteQuery()
     # can_be_added_ram_test()
