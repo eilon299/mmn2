@@ -250,7 +250,37 @@ def diskTotalRAM(diskID: int) -> int:
 
 
 def getCostForPurpose(purpose: str) -> int:
-    return 0
+    # ret = sql_command("SELECT * FROM TQuery WHERE purpose <> {}".format("as"))
+    ret = sql_command("SELECT * FROM TDisk WHERE TDisk.company = " + str("sdf"))
+
+    # ret = sql_command("SELECT * FROM TQuery \
+    #                         WHERE purpose = {}".format("A"))
+
+    # ret = sql_command("SELECT * FROM TQuery \
+    #                         WHERE purpose = {}".format("A"))
+
+    # ret = sql_command("SELECT TDisk.cost, TQuery.size, TDisk.cost*TQuery.size AS TmpCalc FROM \
+    #                  TDisk INNER JOIN DQ ON TDisk.diskID = DQ.diskID \
+    #                 INNER JOIN TQuery ON DQ.queryID = TQuery.queryID \
+    #                 WHERE TQuery.purpose = {}".format(purpose))
+
+    # ret = sql_command("SELECT COALESCE(SUM(TmpTable.TmpCalc), 0) AS CostForPurpose FROM \
+    #             (SELECT TDisk.cost, TQuery.size, TDisk.cost*TQuery.size AS TmpCalc FROM \
+    #              TDisk INNER JOIN DQ ON TDisk.diskID = DQ.diskID \
+    #             INNER JOIN TQuery ON TQuery.queryID = DQ.queryID \
+    #             WHERE TQuery.purpose = {}) AS TmpTable".format(purpose))
+
+    if ret.result is None:  # TODO not sure about it. maybe add another wrapper func for that?
+        return 0
+    elif ret.ret_val != ReturnValue.OK:
+        return -1
+    return ret.result
+    #
+    # ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR \
+    #                         EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
+    #                         INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
+    #                         WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {}) THEN CAST(0 AS BIT) \
+    #                         ELSE CAST(1 AS BIT) END".format(diskID, diskID))
 
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
@@ -286,8 +316,10 @@ def isCompanyExclusive(diskID: int) -> bool:
 
 
 def getConflictingDisks() -> List[int]:
-    return []
-
+    ret = sql_command("SELECT DISTINCT A.diskID FROM DQ A, DQ B \
+                      WHERE A.queryID = B.queryID AND A.diskID <> B.diskID \
+                      ORDER BY A.diskID LIMIT 5")
+    return ret.result
 
 def mostAvailableDisks() -> List[int]:
     sql_command("CREATE VIEW DiskQRunnable AS \
@@ -309,12 +341,71 @@ def mostAvailableDisks() -> List[int]:
     # return []
 
 
-def getCloseQueries(queryID: int) -> List[int]:
-    return []
+def getCloseQueries(queryID: int) -> List[int]:  # TODO
+    # ret = sql_command("SELECT DISTINCT A.diskID FROM DQ A, DQ B \
+    #                       WHERE A.queryID = B.queryID AND A.diskID <> B.diskID \
+    #                       ORDER BY A.diskID LIMIT 5")
+    # return ret.result
+    return 0
 
 
 
 
+def test_getCostForPurpose():
+    for i in range(1, 10):
+        addDisk(Disk(i, "company_" + str(i), 10 * i, 100 * i, 1000 * i))
+    # for i in range(1,10):
+    #     addQuery(Query(i, "A", i))
+
+    q1 = Query(1, "Aaa", 1)
+    addQuery(q1)
+    q2 = Query(2, "Aaa", 20)
+    addQuery(q2)
+    q3 = Query(3, "Aaa", 300)
+    addQuery(q3)
+    q4 = Query(4, "B", 4000)
+    addQuery(q4)
+    q5 = Query(5, "B", 50000)
+    addQuery(q5)
+
+    addQueryToDisk(q1, 1)
+    addQueryToDisk(q2, 1)
+    addQueryToDisk(q3, 1)
+    print(getCostForPurpose("A"))
+
+
+def test_getConflictingDisks():
+    for i in range(1, 5):
+        addDisk(Disk(i, "company_" + str(i), 10 * i, 100 * i, 1000 * i))
+        q1 = Query(i, "Aaa", 1)
+        addQuery(q1)
+        addQueryToDisk(q1, i)
+
+    assert(str(getConflictingDisks()) == "\n")
+
+    q1 = Query(10, "Aaa", 1)
+    addQuery(q1)
+    for i in range(1, 10):
+        addDisk(Disk(10 + i, "company_" + str(i), 10 * i, 100 * i, 1000 * i))
+        addQueryToDisk(q1, 10 + i)
+
+    # print(str(getConflictingDisks()))
+    assert(str(getConflictingDisks()).replace(' ', '').replace('\n', '') == 'diskid1112131415')
+
+    removeQueryFromDisk(q1, 13)
+    removeQueryFromDisk(q1, 14)
+    removeQueryFromDisk(q1, 15)
+    # print(str(getConflictingDisks()))
+    assert (str(getConflictingDisks()).replace(' ', '').replace('\n', '') == 'diskid1112161718')
+
+    q1 = Query(20, "Bbb", 1)
+    addQuery(q1)
+    for i in range(1, 10, 2):
+        addQueryToDisk(q1, 10 + i)
+
+    # print(str(getConflictingDisks()))
+    assert (str(getConflictingDisks()).replace(' ', '').replace('\n', '') == 'diskid1112131516')
+    print("@@@ PASS test_getConflictingDisks @@@" + " however, wait for more tests...")
 
 
 def test_isCompanyExclusive():
