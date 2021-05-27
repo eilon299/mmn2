@@ -120,7 +120,7 @@ def dropTables():  # TODO - check this SQL code ↓ and also reduce to a single 
 def addQuery(query: Query) -> ReturnValue:  # TODO we need to talk about that...
     q = sql.SQL("INSERT INTO TQuery(queryID, purpose, size) VALUES({i}, {p}, {s})").format(
         i=sql.Literal(query.getQueryID()), p=sql.Literal(query.getPurpose()), s=sql.Literal(query.getSize()))
-    return sql_command(q)
+    return sql_command(q).ret_val
     # print(str(q))
     # return insert("TQuery", query)  # TODO this way we cant read and compare properly TEXT values in tables
     # return sql_command("INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2])).ret_val
