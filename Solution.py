@@ -251,7 +251,7 @@ def diskTotalRAM(diskID: int) -> int:
         return 0
     elif ret.ret_val != ReturnValue.OK:
         return -1
-    return ret.result
+    return ret.result.rows[0][0]
 
 
 def getCostForPurpose(purpose: str) -> int:
@@ -299,14 +299,14 @@ def isCompanyExclusive(diskID: int) -> bool:  # TODO drop the case and when
 
     if ret.ret_val != ReturnValue.OK:
         return False
-    return 'True' in str(ret.result)  # TODO what ??
+    return ret.result.rows[0][0]  # TODO lets talk about it!
 
 
 def getConflictingDisks() -> List[int]:
     ret = sql_command("SELECT DISTINCT A.diskID FROM DQ A, DQ B \
                       WHERE A.queryID = B.queryID AND A.diskID <> B.diskID \
                       ORDER BY A.diskID LIMIT 5")
-    return ret.result
+    return ret.result  # TODO change to list
 
 def mostAvailableDisks() -> List[int]:
     sql_command("CREATE VIEW DiskQRunnable AS \
@@ -325,7 +325,6 @@ def mostAvailableDisks() -> List[int]:
     sql_command("DROP VIEW DiskQRunnable")
 
     return ret.result  # TODO - return a list!
-    # return []
 
 
 def getCloseQueries(queryID: int) -> List[int]:  # TODO
@@ -342,13 +341,13 @@ def getCloseQueries(queryID: int) -> List[int]:  # TODO
                     ORDER BY tmpT.queryID LIMIT 10").format(id=sql.Literal(queryID))
     ret = sql_command(q)
 
-    return [int(x) for x in str(ret.result).replace(' ','').split('\n')[1:-1]]  # TODO what?
+    return [x[0] for x in ret.result.rows]  # TODO lets talk about it
 
 
 def test_getCloseQueries():
     for i in range(1, 10):
         addDisk(Disk(i, "company_" + str(i), 10 * i, 100 * i, 1000 * i))
-    q1 = Query(1, "Aaa", 1)
+    q1 = Query(10, "Aaa", 1)
     addQuery(q1)
     q2 = Query(2, "Aaa", 1)
     addQuery(q2)
@@ -360,10 +359,10 @@ def test_getCloseQueries():
     addQueryToDisk(q2, 3)
     addQueryToDisk(q2, 4)
 
-    assert (getCloseQueries(1) == [2])
+    assert (getCloseQueries(10) == [2])
     assert (getCloseQueries(2) == [])
-    assert (getCloseQueries(3) == [1, 2])
-    assert (getCloseQueries(666) == [1, 2, 3])
+    assert (getCloseQueries(3) == [2, 10])
+    assert (getCloseQueries(666) == [2, 3, 10])
     print("@@@ PASS test_getCloseQueries @@@" + " however, wait for more tests...")
 
 
@@ -590,10 +589,10 @@ def can_be_added_ram_test():
 if __name__ == '__main__':
     dropTables()
     createTables()
-    # test_getCloseQueries()
+    test_getCloseQueries()
     # test_getCostForPurpose()
     # test_getConflictingDisks()
-    test_isCompanyExclusive()
+    # test_isCompanyExclusive()
     # test_avg_q_size_on_disk()
     # test_deleteQuery()
     # can_be_added_ram_test()
