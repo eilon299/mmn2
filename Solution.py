@@ -266,7 +266,8 @@ def getCostForPurpose(purpose: str) -> int:
     elif ret.ret_val != ReturnValue.OK:
         return -1
     # return ret.result
-    return int(str(ret.result).replace(' ', '').split('\n')[1])  # TODO what ??
+    # return int(str(ret.result).replace(' ', '').split('\n')[1])  # TODO what ??
+    return ret.result.rows[0][0]  # TODO what ??
 
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
@@ -306,7 +307,8 @@ def getConflictingDisks() -> List[int]:
     ret = sql_command("SELECT DISTINCT A.diskID FROM DQ A, DQ B \
                       WHERE A.queryID = B.queryID AND A.diskID <> B.diskID \
                       ORDER BY A.diskID LIMIT 5")
-    return ret.result  # TODO change to list
+    # return ret.result  # TODO change to list
+    return [x[0] for x in ret.result.rows]
 
 def mostAvailableDisks() -> List[int]:
     sql_command("CREATE VIEW DiskQRunnable AS \
@@ -585,11 +587,10 @@ def can_be_added_ram_test():
 
 
 
-
 if __name__ == '__main__':
-    dropTables()
-    createTables()
-    test_getCloseQueries()
+    # dropTables()
+    # createTables()
+    # test_getCloseQueries()
     # test_getCostForPurpose()
     # test_getConflictingDisks()
     # test_isCompanyExclusive()
@@ -597,3 +598,8 @@ if __name__ == '__main__':
     # test_deleteQuery()
     # can_be_added_ram_test()
 
+    for test in [test_getCloseQueries, test_getCostForPurpose, test_isCompanyExclusive, test_isCompanyExclusive,\
+                 test_avg_q_size_on_disk, test_deleteQuery, can_be_added_ram_test]:
+        dropTables()
+        createTables()
+        test()

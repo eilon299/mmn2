@@ -18,7 +18,11 @@ class Test(AbstractTest):
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addDisk(Disk(0, "HP", 10, 10, 10)), "ID 0 is illegal")
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addDisk(Disk(4, "HP", 10, 10, 0)), "Cost 0 is illegal")
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addDisk(Disk(4, "HP", 10, -1, 10)), "Free space -1 is illegal")
+
+        print("BP1")  # TODO next line is where we first fail
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addDisk(Disk(None, "HP", 10, -1, 10)), "NULL is not allowed")
+        print("BP2")  # TODO we will not see this print due to assert
+
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addDisk(Disk(4, None, 10, 10, 10)), "NULL is not allowed")
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addDisk(Disk(4, "HP", None, 10, 10)), "NULL is not allowed")
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addDisk(Disk(4, "HP", 10, None, 10)), "NULL is not allowed")
@@ -61,7 +65,10 @@ class Test(AbstractTest):
                          "ID 1 ALREADY_EXISTS")
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addRAM(RAM(4, "HP", 0)), "Size 0 is illegal")
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addRAM(RAM(0, "HP", 10)), "ID 0 is illegal")
+        print("BP1")  # TODO next line is where we first fail
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addRAM(RAM(None, "HP", 10)), "NULL is not allowed")
+        print("BP2")  # TODO we will not see this print due to assert
+
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addRAM(RAM(4, None, 10)), "NULL is not allowed")
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addRAM(RAM(4, "HP", None)), "NULL is not allowed")
         self.assertEqual(ReturnValue.OK, Solution.addRAM(RAM(4, "HP", 10)), "Should work")
@@ -99,8 +106,11 @@ class Test(AbstractTest):
                          "Size -1 is illegal")
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addQuery(Query(0, "find minimum value", 10)),
                          "ID 0 is illegal")
+        print("BP1?!?!")  # TODO here V we do not fail due the sql.SQL(...) trick
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addQuery(Query(None, "find minimum value", 10)),
                          "NULL is not allowed")
+        print("BP2?!?!?!")  # TODO here ^ we do not fail due the sql.SQL(...) trick
+
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addQuery(Query(4, None, 10)), "NULL is not allowed")
         self.assertEqual(ReturnValue.BAD_PARAMS, Solution.addQuery(Query(4, "find minimum value", None)),
                          "NULL is not allowed")
