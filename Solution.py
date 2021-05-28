@@ -48,25 +48,16 @@ def sql_command(query, printSchema=False, to_commit=True):
         if not to_commit:
             conn.rollback()
         print(e)
-        return SQLRet(ReturnValue.NOT_EXISTS)  # TODO - am i right?
-        # return ReturnValue.ERROR  # TODO - notice if this is correct
+        return SQLRet(ReturnValue.NOT_EXISTS)
     except Exception as e:
+        if not to_commit:
+            conn.rollback()
         print(e)
+        return SQLRet(ReturnValue.ERROR)
     finally:
         # will happen any way after try termination or exception handling
         conn.close()
     return SQLRet(ReturnValue.OK, rows_effected, result)
-
-
-# def insert(table, obj):
-#     # TODO - SQL action to add the query ↓
-#     return sql_command("INSERT INTO {} values ({})".format(table, str((obj.__dict__.values()))[13:-2])).ret_val
-#     # the above translates to INSERT INTO <tabke name> values (<values of the obj>)
-#
-#     # if ret.rows_affected == 0:  # lookup queryID to check that it's unique and not in DB yet
-#     #     return ReturnValue.ALREADY_EXISTS
-#     # else:
-#     #     return ret.ret_val
 
 
 def createTables():
@@ -97,94 +88,98 @@ def createTables():
                                 PRIMARY KEY (diskID, queryID), UNIQUE(diskID, queryID));")
 
 
-def clearTables():  # TODO - check this SQL code ↓ and also reduce to a single query (maybe using group?)
+def clearTables():
     sql_command("DELETE FROM TQuery;\
                 DELETE FROM TRAM;\
                 DELETE FROM TDisk")
 
 
-def dropTables():  # TODO - check this SQL code ↓ and also reduce to a single query (maybe using grouping?)
+def dropTables():
     sql_command("DROP TABLE IF EXISTS TQuery CASCADE;\
                 DROP TABLE IF EXISTS TRAM CASCADE;\
                 DROP TABLE IF EXISTS TDisk CASCADE;\
                 DROP TABLE IF EXISTS DR CASCADE;\
                 DROP TABLE IF EXISTS DQ CASCADE;")
 
-def addQuery(query: Query) -> ReturnValue:  # TODO we need to talk about that...
+def addQuery(query: Query) -> ReturnValue:
     q = sql.SQL("INSERT INTO TQuery(queryID, purpose, size) VALUES({i}, {p}, {s})").format(
-        i=sql.Literal(query.getQueryID()), p=sql.Literal(query.getPurpose()), s=sql.Literal(query.getSize()))
+                                                                                    i=sql.Literal(query.getQueryID()),
+                                                                                    p=sql.Literal(query.getPurpose()),
+                                                                                    s=sql.Literal(query.getSize()))
     return sql_command(q).ret_val
 
 
 def getQueryProfile(queryID: int) -> Query:
     ret = sql_command(sql.SQL("SELECT * FROM TQuery WHERE queryID = {}").format(sql.Literal(queryID)))
-    if ret.result is not None:  # TODO check
-        return ret.result
+    if ret.rows_affected != 0 and ret.ret_val == ReturnValue.OK:
+        return Query(ret.result.rows[0][0], ret.result.rows[0][1], ret.result.rows[0][2])
     else:
         return Query.badQuery()
 
 
 def deleteQuery(query: Query) -> ReturnValue:
-    # TODO - do not forget to adjust the free space on disk if the query runs on one. Hint - think about transactions in such cases (there are more in this assignment).
-    ret = sql_command(sql.SQL("BEGIN; \
-                        UPDATE TDisk \
-                        SET free_space = free_space + {size} \
-                        WHERE diskID IN (SELECT diskID FROM DQ WHERE queryID = {id}); \
-                        DELETE FROM TQuery WHERE queryID = {id}; \
-                        COMMIT;").format(size=sql.Literal(query.getSize()), id=sql.Literal(query.getQueryID())),
-                      to_commit=False)
+    q = sql.SQL("BEGIN; \
+                UPDATE TDisk \
+                SET free_space = free_space + {size} \
+                WHERE diskID IN (SELECT diskID FROM DQ WHERE queryID = {id}); \
+                DELETE FROM TQuery WHERE queryID = {id}; \
+                COMMIT;").format(size=sql.Literal(query.getSize()),
+                                 id=sql.Literal(query.getQueryID()))
+    ret = sql_command(q, to_commit=False)
     return ret.ret_val
 
 
 def addDisk(disk: Disk) -> ReturnValue:
     q = sql.SQL("INSERT INTO TDisk(diskID, company, speed, free_space, cost) VALUES({i}, {comp}, {sp}, {fs}, {cost})")\
-        .format(i=sql.Literal(disk.getDiskID()), comp=sql.Literal(disk.getCompany()), sp=sql.Literal(disk.getSpeed()),
-                fs=sql.Literal(disk.getFreeSpace()), cost=sql.Literal(disk.getCost()))
+        .format(i=sql.Literal(disk.getDiskID()),
+                comp=sql.Literal(disk.getCompany()),
+                sp=sql.Literal(disk.getSpeed()),
+                fs=sql.Literal(disk.getFreeSpace()),
+                cost=sql.Literal(disk.getCost()))
     return sql_command(q).ret_val
 
 
 
 def getDiskProfile(diskID: int) -> Disk:
     ret = sql_command("SELECT * FROM TDisk WHERE diskID = {}".format(diskID))
-    if ret.result is not None:
-        return ret.result
+    if ret.rows_affected != 0 and ret.ret_val == ReturnValue.OK:
+        return Disk(ret.result.rows[0][0], ret.result.rows[0][1], ret.result.rows[0][2], ret.result.rows[0][3], ret.result.rows[0][4])
     else:
         return Disk.badDisk()
 
 
 def deleteDisk(diskID: int) -> ReturnValue:
-    ret = sql_command(f"DELETE FROM TDisk WHERE diskID = {diskID}") #;\
-                        # DELETE FROM DR WHERE diskID = {diskID};\
-                        # DELETE FROM DQ WHERE diskID = {diskID};")
-    if ret.rows_affected == 0:
+    ret = sql_command(f"DELETE FROM TDisk WHERE diskID = {diskID}")
+    if ret.rows_affected == 0: #TODO - check that this is correct and we get 0 when we did not delete
         return ReturnValue.NOT_EXISTS
     return ret.ret_val
 
 
 def addRAM(ram: RAM) -> ReturnValue:
-    q = sql.SQL("INSERT INTO TRam(ramID, company, size) VALUES({i}, {comp}, {s})").format(
-        i=sql.Literal(ram.getRamID()), comp=sql.Literal(ram.getCompany()), s=sql.Literal(ram.getSize()))
+    q = sql.SQL("INSERT INTO TRam(ramID, company, size) VALUES({id}, {comp}, {size})").format(
+                                                                                    id=sql.Literal(ram.getRamID()),
+                                                                                    comp=sql.Literal(ram.getCompany()),
+                                                                                    size=sql.Literal(ram.getSize()))
     return sql_command(q).ret_val
 
 
 def getRAMProfile(ramID: int) -> RAM:
     ret = sql_command("SELECT * FROM TRAM WHERE TRAM.ramID = {}".format(ramID))
-    if ret.result is not None:
-        return ret.result
+    if ret.rows_affected != 0 and ret.ret_val == ReturnValue.OK:
+        return RAM(ret.result.rows[0][0], ret.result.rows[0][1], ret.result.rows[0][2])
     else:
         return RAM.badRAM()
 
 
 def deleteRAM(ramID: int) -> ReturnValue:
-    ret = sql_command(f"DELETE FROM TRAM WHERE TRAM.ramID = {ramID}") #; \
-                        #DELETE FROM DR WHERE ramID = {ramID};")
+    ret = sql_command(f"DELETE FROM TRAM WHERE TRAM.ramID = {ramID}")
     if ret.rows_affected == 0:
         return ReturnValue.NOT_EXISTS
     return ret.ret_val
 
 
 def addDiskAndQuery(disk: Disk, query: Query) -> ReturnValue:
-    q = sql.SQLf("BEGIN; \
+    q = sql.SQL("BEGIN; \
                 INSERT INTO TQuery values ({q_id}, {q_purpose}, {q_size});\
                 INSERT INTO TDisk values ({d_id}, {d_comp}, {d_speed}, {d_fs}, {d_cost});\
                 COMMIT;").format(q_id=sql.Literal(query.getQueryID()),
@@ -205,47 +200,48 @@ class pair:
 
 
 def addQueryToDisk(query: Query, diskID: int) -> ReturnValue:
-    # return sql_command(sql.SQL(f"BEGIN; \
-    #                     INSERT INTO DQ values ({sql.Literal(diskID)}, {sql.Literal(query.getQueryID())}); \
-    #                     UPDATE TDisk \
-    #                     SET free_space = free_space - {sql.Literal(query.getSize())} \
-    #                     WHERE diskID = {sql.Literal(diskID)}; \
-    #                     COMMIT;"), to_commit=False).ret_val
-    return sql_command(sql.SQL("BEGIN; \
-                            INSERT INTO DQ values ({d_id}, {q_id}); \
-                            UPDATE TDisk \
-                            SET free_space = free_space - {size} \
-                            WHERE diskID = {d_id}; \
-                            COMMIT;").format(d_id=sql.Literal(diskID), q_id=sql.Literal(query.getQueryID()),
-                                             size=sql.Literal(query.getSize())), to_commit=False).ret_val
+    q = sql.SQL("BEGIN; \
+                INSERT INTO DQ values ({d_id}, {q_id}); \
+                UPDATE TDisk \
+                SET free_space = free_space - {size} \
+                WHERE diskID = {d_id}; \
+                COMMIT;").format(d_id=sql.Literal(diskID),
+                                 q_id=sql.Literal(query.getQueryID()),
+                                 size=sql.Literal(query.getSize()))
+    return sql_command(q, to_commit=False).ret_val
 
 
 def removeQueryFromDisk(query: Query, diskID: int) -> ReturnValue:
     q = sql.SQL("BEGIN; \
-                        DELETE FROM DQ WHERE queryID = {q_id} AND \
-                               diskID = {d_id}; \
-                        UPDATE TDisk \
-                        SET free_space = free_space + {size} \
-                        WHERE diskID = {d_id}; \
-                        COMMIT;").format(q_id=sql.Literal(query.getQueryID()), size=sql.Literal(query.getSize()),
-                                         d_id=sql.Literal(diskID))
+                UPDATE TDisk \
+                SET free_space = free_space + {size} \
+                WHERE diskID = {d_id} AND EXISTS(SELECT * from DQ WHERE queryID = {q_id} AND diskID = {d_id}); \
+                DELETE FROM DQ WHERE queryID = {q_id} AND diskID = {d_id}; \
+                COMMIT;").format(q_id=sql.Literal(query.getQueryID()),
+                                 size=sql.Literal(query.getSize()),
+                                 d_id=sql.Literal(diskID))
     return sql_command(q, to_commit=False).ret_val
 
 
 def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
     return sql_command("INSERT INTO DR values ({}, {})".format(diskID, ramID)).ret_val
-    # return sql_command("INSERT INTO DR values (" + str(diskID) + ", " + str(ramID) + ")").ret_val
 
 
 def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
-    return sql_command("DELETE FROM DR WHERE diskID = {} AND ramID = {}".format(diskID, ramID))
-    # TODO ReturnValue, does not return NOT_EXISTS if RAM/disk does not exist or RAM is not a part of disk
+    ret = sql_command("DELETE FROM DR WHERE diskID = {} AND ramID = {}".format(diskID, ramID))
+    if ret.rows_affected == 0:
+        return ReturnValue.NOT_EXISTS
+    return ret.ret_val
 
 
-def averageSizeQueriesOnDisk(diskID: int) -> float:  # checked - GOOD
-    ret = sql_command(f"SELECT CAST(AVG(size) AS FLOAT)\
+def averageSizeQueriesOnDisk(diskID: int) -> float:
+    ret = sql_command(f"SELECT CAST(AVG(COALESCE(size)) AS FLOAT)\
                        FROM DQ  NATURAL JOIN TQuery \
                        WHERE diskID = {diskID}")
+    if ret.ret_val != ReturnValue.OK:
+        return -1
+    elif ret.result.rows[0][0] is None:
+        return 0
     return ret.result.rows[0][0]
 
 
@@ -253,9 +249,7 @@ def diskTotalRAM(diskID: int) -> int:
     ret = sql_command("SELECT COALESCE(SUM(size), 0) FROM TRAM \
         WHERE ramID in (SELECT ramID FROM DR WHERE diskID = {})".format(diskID))
 
-    if ret.result is None:  # TODO not sure about it. maybe add another wrapper func for that?
-        return 0
-    elif ret.ret_val != ReturnValue.OK:
+    if ret.ret_val != ReturnValue.OK:
         return -1
     return ret.result.rows[0][0]
 
@@ -267,9 +261,7 @@ def getCostForPurpose(purpose: str) -> int:
                 INNER JOIN TQuery ON TQuery.queryID = DQ.queryID \
                 WHERE TQuery.purpose = {p_t}) AS TmpTable").format(p_t=sql.Literal(purpose)))
 
-    if ret.result is None:  # TODO not sure about it. maybe add another wrapper func for that?
-        return 0
-    elif ret.ret_val != ReturnValue.OK:
+    if ret.ret_val != ReturnValue.OK:
         return -1
     return ret.result.rows[0][0]
 
@@ -278,25 +270,27 @@ def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
     ret = sql_command(f"SELECT queryID\
                         FROM TQuery, (SELECT free_space FROM TDisk WHERE diskID = {diskID}) as Temp\
                         WHERE size <= free_space\
+                        ORDER BY queryID DESC \
                         LIMIT 5")
-    return [x[0] for x in ret.result.rows]  # TODO - return a list!
 
+    if ret.ret_val == ReturnValue.OK:
+        return [x[0] for x in ret.result.rows]
+    else:
+        return []
 
 def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
     ret = sql_command(f"SELECT queryID\
-                            FROM TQuery, (SELECT free_space FROM TDisk WHERE diskID = {diskID}) as Temp\
-                            WHERE size <= free_space AND size <= (SELECT SUM(size) FROM DR NATURAL JOIN TRAM WHERE diskID = {diskID})\
-                            LIMIT 5")
-    return [x[0] for x in ret.result.rows]  # TODO - return a list!
+                        FROM TQuery, (SELECT free_space FROM TDisk WHERE diskID = {diskID}) as Temp\
+                        WHERE size <= free_space AND size <= COALESCE((SELECT SUM(size) FROM DR NATURAL JOIN TRAM WHERE diskID = {diskID}), 0) \
+                        ORDER BY queryID ASC\
+                        LIMIT 5")
 
+    if ret.ret_val == ReturnValue.OK:
+        return [x[0] for x in ret.result.rows]
+    else:
+        return []
 
-def isCompanyExclusive(diskID: int) -> bool:  # TODO drop the case and when
-    # ret = sql_command("SELECT CASE WHEN NOT EXISTS(SELECT * FROM TDisk WHERE diskID = {}) OR \
-    #                     EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
-    #                     INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
-    #                     WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {}) THEN CAST(0 AS BIT) \
-    #                     ELSE CAST(1 AS BIT) END".format(diskID, diskID))
-
+def isCompanyExclusive(diskID: int) -> bool:
     ret = sql_command("SELECT EXISTS(SELECT * FROM TDisk WHERE diskID = {id}) AND \
                         NOT EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
                         INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
@@ -304,50 +298,59 @@ def isCompanyExclusive(diskID: int) -> bool:  # TODO drop the case and when
 
     if ret.ret_val != ReturnValue.OK:
         return False
-    return ret.result.rows[0][0]  # TODO lets talk about it!
+    else:
+        return ret.result.rows[0][0]
 
 
 def getConflictingDisks() -> List[int]:
     ret = sql_command("SELECT DISTINCT A.diskID FROM DQ A, DQ B \
                       WHERE A.queryID = B.queryID AND A.diskID <> B.diskID \
-                      ORDER BY A.diskID LIMIT 5")
-    # return ret.result  # TODO change to list
-    return [x[0] for x in ret.result.rows]
+                      ORDER BY A.diskID ASC \
+                      LIMIT 5")
+    if ret.ret_val == ReturnValue.OK:
+        return [x[0] for x in ret.result.rows]
+    else:
+        return []
 
 def mostAvailableDisks() -> List[int]:
-    sql_command("CREATE VIEW DiskQRunnable AS \
-                    SELECT diskID, speed, queryID \
-                    FROM TQuery, TDisk \
-                    WHERE size <= free_space \
-                    ORDER BY diskID")
 
     ret = sql_command("SELECT diskID \
-                        FROM (  SELECT diskID, COUNT(diskID), speed\
-                                FROM DiskQRunnable\
-                                GROUP BY (diskID, speed) \
-                                ORDER BY count DESC, speed DESC, diskID ASC ) AS Sub\
+                        FROM (  SELECT diskID, speed, (SELECT COALESCE(COUNT(queryID), 0)\
+                                                        FROM TQuery, (SELECT free_space FROM TDisk AS D WHERE TDisk.diskID = D.diskID) as Temp\
+                                                        WHERE size <= free_space\
+                                                       ) AS counti\
+                                FROM TDisk\
+                              ) AS Temp\
+                        ORDER BY counti DESC, speed DESC, diskID ASC\
                         LIMIT 5")
 
-    sql_command("DROP VIEW DiskQRunnable")
+    if ret.ret_val == ReturnValue.OK:
+        return [x[0] for x in ret.result.rows]
+    else:
+        return []
 
-    return ret.result  # TODO - return a list!
 
-
-def getCloseQueries(queryID: int) -> List[int]:  # TODO
-    q = sql.SQL("SELECT queryID FROM (SELECT TQuery.queryID, \
-                            (SELECT COALESCE(COUNT(diskID), 0) \
-                            FROM DQ \
-                            WHERE DQ.queryID = TQuery.queryID AND \
-                                DQ.diskID in (SELECT diskID FROM DQ WHERE queryID = {id}) \
-                            ) AS sharedDisks \
-                    FROM TQuery) AS tmpT \
-                    WHERE queryID <> {id} AND \
-                        sharedDisks >= (SELECT COUNT(*) \
-                                        FROM DQ WHERE queryID = {id})*0.5 \
-                    ORDER BY tmpT.queryID LIMIT 10").format(id=sql.Literal(queryID))
+def getCloseQueries(queryID: int) -> List[int]:
+    q = sql.SQL("SELECT queryID \
+                FROM    (SELECT TQuery.queryID, (  SELECT COALESCE(COUNT(diskID), 0) \
+                                                FROM DQ \
+                                                WHERE DQ.queryID = TQuery.queryID AND \
+                                                        DQ.diskID in (SELECT diskID FROM DQ WHERE queryID = {id}) \
+                                                ) AS sharedDisks \
+                        FROM TQuery\
+                        ) AS tmpT \
+                WHERE queryID <> {id} AND sharedDisks >=   (SELECT COUNT(*) \
+                                                            FROM DQ \
+                                                            WHERE queryID = {id}\
+                                                            )*0.5 \
+                ORDER BY tmpT.queryID ASC \
+                LIMIT 10").format(id=sql.Literal(queryID))
     ret = sql_command(q)
 
-    return [x[0] for x in ret.result.rows]  # TODO lets talk about it
+    if ret.ret_val == ReturnValue.OK:
+        return [x[0] for x in ret.result.rows]
+    else:
+        return []
 
 
 def test_getCloseQueries():
@@ -605,9 +608,13 @@ if __name__ == '__main__':
 
     dropTables()
     createTables()
+    deleteDisk(2)
+    addDisk(Disk(1, "HP", 1, 1, 1))
+    mostAvailableDisks()  # should be [1]
 
-    for test in [test_getCloseQueries, test_getCostForPurpose, test_isCompanyExclusive, test_isCompanyExclusive,\
-                 test_avg_q_size_on_disk, test_deleteQuery, can_be_added_ram_test]:
-        dropTables()
-        createTables()
-        test()
+    #
+    # for test in [test_getCloseQueries, test_getCostForPurpose, test_isCompanyExclusive, test_isCompanyExclusive,\
+    #              test_avg_q_size_on_disk, test_deleteQuery, can_be_added_ram_test]:
+    #     dropTables()
+    #     createTables()
+    #     test()
