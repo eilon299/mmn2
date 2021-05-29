@@ -27,32 +27,32 @@ def sql_command(query, printSchema=False, to_commit=True):
     except DatabaseException.ConnectionInvalid as e:
         if not to_commit:
             conn.rollback()
-        print(e)
+        # print(e)
         return SQLRet(ReturnValue.ERROR)
     except DatabaseException.NOT_NULL_VIOLATION as e:
         if not to_commit:
             conn.rollback()
-        print(e)
+        # print(e)
         return SQLRet(ReturnValue.BAD_PARAMS)
     except DatabaseException.CHECK_VIOLATION as e:
         if not to_commit:
             conn.rollback()
-        print(e)
+        # print(e)
         return SQLRet(ReturnValue.BAD_PARAMS)
     except DatabaseException.UNIQUE_VIOLATION as e:
         if not to_commit:
             conn.rollback()
-        print(e)
+        # print(e)
         return SQLRet(ReturnValue.ALREADY_EXISTS)
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
         if not to_commit:
             conn.rollback()
-        print(e)
+        # print(e)
         return SQLRet(ReturnValue.NOT_EXISTS)
     except Exception as e:
         if not to_commit:
             conn.rollback()
-        print(e)
+        # print(e)
         return SQLRet(ReturnValue.ERROR)
     finally:
         # will happen any way after try termination or exception handling
