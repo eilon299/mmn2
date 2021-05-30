@@ -150,7 +150,7 @@ def getDiskProfile(diskID: int) -> Disk:
 
 def deleteDisk(diskID: int) -> ReturnValue:
     ret = sql_command(f"DELETE FROM TDisk WHERE diskID = {diskID}")
-    if ret.rows_affected == 0: #TODO - check that this is correct and we get 0 when we did not delete
+    if ret.rows_affected == 0:
         return ReturnValue.NOT_EXISTS
     return ret.ret_val
 
@@ -246,8 +246,9 @@ def averageSizeQueriesOnDisk(diskID: int) -> float:
 
 
 def diskTotalRAM(diskID: int) -> int:
-    ret = sql_command("SELECT COALESCE(SUM(size), 0) FROM TRAM \
-        WHERE ramID in (SELECT ramID FROM DR WHERE diskID = {})".format(diskID))
+    ret = sql_command("SELECT COALESCE(SUM(size), 0)\
+                        FROM TRAM \
+                        WHERE ramID in (SELECT ramID FROM DR WHERE diskID = {})".format(diskID))
 
     if ret.ret_val != ReturnValue.OK:
         return -1
@@ -255,11 +256,10 @@ def diskTotalRAM(diskID: int) -> int:
 
 
 def getCostForPurpose(purpose: str) -> int:
-    ret = sql_command(sql.SQL("SELECT COALESCE(SUM(TmpTable.TmpCalc), 0) AS CostForPurpose FROM \
-                (SELECT TDisk.cost, TQuery.size, TDisk.cost*TQuery.size AS TmpCalc FROM \
-                 TDisk INNER JOIN DQ ON TDisk.diskID = DQ.diskID \
-                INNER JOIN TQuery ON TQuery.queryID = DQ.queryID \
-                WHERE TQuery.purpose = {p_t}) AS TmpTable").format(p_t=sql.Literal(purpose)))
+    ret = sql_command(sql.SQL("SELECT COALESCE(SUM(TmpTable.TmpCalc), 0)\
+                                FROM  (SELECT TDisk.cost, TQuery.size, TDisk.cost*TQuery.size AS TmpCalc\
+                                        FROM TDisk INNER JOIN DQ ON TDisk.diskID = DQ.diskID INNER JOIN TQuery ON TQuery.queryID = DQ.queryID \
+                                        WHERE TQuery.purpose = {p_t}) AS TmpTable").format(p_t=sql.Literal(purpose)))
 
     if ret.ret_val != ReturnValue.OK:
         return -1
@@ -292,9 +292,10 @@ def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
 
 def isCompanyExclusive(diskID: int) -> bool:
     ret = sql_command("SELECT EXISTS(SELECT * FROM TDisk WHERE diskID = {id}) AND \
-                        NOT EXISTS(SELECT * FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
-                        INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
-                        WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {id})".format(id=diskID))
+                            NOT EXISTS(SELECT * \
+                                        FROM TDisk INNER JOIN DR ON TDisk.diskID = DR.diskID \
+                                                    INNER JOIN TRAM ON DR.ramID = TRAM.ramID \
+                                        WHERE TDisk.company <> TRAM.company AND TDisk.diskID = {id})".format(id=diskID))
 
     if ret.ret_val != ReturnValue.OK:
         return False
@@ -303,14 +304,16 @@ def isCompanyExclusive(diskID: int) -> bool:
 
 
 def getConflictingDisks() -> List[int]:
-    ret = sql_command("SELECT DISTINCT A.diskID FROM DQ A, DQ B \
-                      WHERE A.queryID = B.queryID AND A.diskID <> B.diskID \
-                      ORDER BY A.diskID ASC \
-                      LIMIT 5")
+    ret = sql_command("SELECT DISTINCT A.diskID \
+                        FROM DQ A, DQ B \
+                        WHERE A.queryID = B.queryID AND A.diskID <> B.diskID \
+                        ORDER BY A.diskID ASC \
+                        LIMIT 5")
     if ret.ret_val == ReturnValue.OK:
         return [x[0] for x in ret.result.rows]
     else:
         return []
+
 
 def mostAvailableDisks() -> List[int]:
 
@@ -335,7 +338,7 @@ def getCloseQueries(queryID: int) -> List[int]:
                 FROM    (SELECT TQuery.queryID, (  SELECT COALESCE(COUNT(diskID), 0) \
                                                 FROM DQ \
                                                 WHERE DQ.queryID = TQuery.queryID AND \
-                                                        DQ.diskID in (SELECT diskID FROM DQ WHERE queryID = {id}) \
+                                                        DQ.diskID IN (SELECT diskID FROM DQ WHERE queryID = {id}) \
                                                 ) AS sharedDisks \
                         FROM TQuery\
                         ) AS tmpT \
