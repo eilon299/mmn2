@@ -85,24 +85,37 @@ def createTables():
                                 queryID INTEGER NOT NULL CHECK(queryID > 0), \
                                 FOREIGN KEY (diskID) REFERENCES TDisk(diskID) ON DELETE CASCADE, \
                                 FOREIGN KEY (queryID) REFERENCES TQuery(queryID) ON DELETE CASCADE, \
-                                PRIMARY KEY (diskID, queryID), UNIQUE(diskID, queryID));\
+                                PRIMARY KEY (diskID, queryID), UNIQUE(diskID, queryID)); \
                 \
-                CREATE VIEW D_can_run_Q AS \
-                        SELECT tmp.diskID, TQuery.queryID \
-                        FROM TQuery, (SELECT free_space, diskID FROM TDisk) AS tmp \
-                        WHERE TQuery.size <= tmp.free_space; \
-                \
+                CREATE VIEW DCanRunQ AS \
+                                    SELECT tmp.diskID, TQuery.queryID, TQuery.size \
+                                    FROM TQuery, (SELECT free_space, diskID FROM TDisk) AS tmp \
+                                    WHERE TQuery.size <= tmp.free_space; \
+                            \
                 CREATE VIEW D_total_RAM AS \
                         SELECT diskID , COALESCE((  SELECT SUM(size) \
                                                         FROM TRAM \
                                                         WHERE TRAM.ramID in (SELECT ramID FROM DR AS Dtemp WHERE Dtemp.diskID = TDisk.diskID) \
                                                      ), 0) AS totalRam \
                         FROM TDisk")
-                        # WHERE TRAM.ramID in (SELECT ramID FROM DR WHERE TDisk.diskID = DR.diskID);")
 
-#       SELECT COALESCE(SUM(size), 0) \
-#       FROM TRAM \
-#       WHERE ramID in (SELECT ramID FROM DR WHERE diskID = {})".format(diskID))
+#use cases: getQueriesCanBeAddedToDisk, getQueriesCanBeAddedToDiskAndRAM, mostAvailableDisks
+# CREATE VIEW D_can_run_Q as (
+#     SELECT  diskID, queryID \
+#     FROM    TQuery, (SELECT free_space FROM TDisk) \
+#     WHERE   size <= free_space
+# )
+
+#use cases: getQueriesCanBeAddedToDiskAndRAM, getTotalRAM
+# CREATE VIEW D_total_RAM as (
+#     SELECT diskID, COALESCE(SUM(size), 0)\
+#     FROM TDisk, TRAM \
+#     WHERE ramID in (SELECT ramID FROM DR WHERE TDisk.diskID = DR.diskID)
+
+
+# DROP VIEW D_can_run_Q
+# DROP VIEW D_total_RAM
+
 
 def clearTables():
     sql_command("DELETE FROM TQuery;\
@@ -116,7 +129,7 @@ def dropTables():
                 DROP TABLE IF EXISTS TDisk CASCADE;\
                 DROP TABLE IF EXISTS DR CASCADE;\
                 DROP TABLE IF EXISTS DQ CASCADE;\
-                DROP TABLE IF EXISTS D_can_run_Q;\
+                DROP TABLE IF EXISTS DCanRunQ;\
                 DROP TABLE IF EXISTS D_total_RAM;")
 
 def addQuery(query: Query) -> ReturnValue:
@@ -155,7 +168,6 @@ def addDisk(disk: Disk) -> ReturnValue:
                 fs=sql.Literal(disk.getFreeSpace()),
                 cost=sql.Literal(disk.getCost()))
     return sql_command(q).ret_val
-
 
 
 def getDiskProfile(diskID: int) -> Disk:
@@ -264,16 +276,12 @@ def averageSizeQueriesOnDisk(diskID: int) -> float:
 
 
 def diskTotalRAM(diskID: int) -> int:
-    ret = sql_command("SELECT COALESCE(totalRam,0) \
-                        FROM D_total_RAM \
-                        WHERE diskID = {}".format(diskID))
+    ret = sql_command("SELECT COALESCE(SUM(totalRam), 0) \
+                            FROM D_total_RAM \
+                            WHERE diskID = {}".format(diskID))
 
-    # print(sql_command("SELECT *\
-    #                     FROM D_total_RAM").result)
     if ret.ret_val != ReturnValue.OK:
         return -1
-    elif ret.result.rows == []:
-        return 0
     return ret.result.rows[0][0]
 
 
@@ -290,8 +298,8 @@ def getCostForPurpose(purpose: str) -> int:
 
 def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
     ret = sql_command(f"SELECT queryID\
-                        FROM TQuery, (SELECT free_space FROM TDisk WHERE diskID = {diskID}) as Temp\
-                        WHERE size <= free_space\
+                        FROM DCanRunQ\
+                        WHERE diskID = {diskID} \
                         ORDER BY queryID DESC \
                         LIMIT 5")
 
@@ -302,8 +310,8 @@ def getQueriesCanBeAddedToDisk(diskID: int) -> List[int]:
 
 def getQueriesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
     ret = sql_command(f"SELECT queryID\
-                        FROM TQuery, (SELECT free_space FROM TDisk WHERE diskID = {diskID}) as Temp\
-                        WHERE size <= free_space AND size <= COALESCE((SELECT totalram from D_total_RAM where D_total_RAM.diskID = {diskID}), 0) \
+                        FROM DCanRunQ \
+                        WHERE DCanRunQ.diskID = {diskID} AND DCanRunQ.size <= (SELECT totalRam FROM D_total_RAM WHERE D_total_RAM.diskID = {diskID}) \
                         ORDER BY queryID ASC\
                         LIMIT 5")
 
@@ -341,8 +349,8 @@ def mostAvailableDisks() -> List[int]:
 
     ret = sql_command("SELECT diskID \
                         FROM (  SELECT diskID, speed, (SELECT COALESCE(COUNT(queryID), 0)\
-                                                        FROM TQuery, (SELECT free_space FROM TDisk AS D WHERE TDisk.diskID = D.diskID) as Temp\
-                                                        WHERE size <= free_space\
+                                                        FROM DCanRunQ\
+                                                        WHERE DCanRunQ.diskID = TDisk.diskID\
                                                        ) AS counti\
                                 FROM TDisk\
                               ) AS Temp\
@@ -358,9 +366,9 @@ def mostAvailableDisks() -> List[int]:
 def getCloseQueries(queryID: int) -> List[int]:
     q = sql.SQL("SELECT queryID \
                 FROM    (SELECT TQuery.queryID, (  SELECT COALESCE(COUNT(diskID), 0) \
-                                                FROM DQ \
-                                                WHERE DQ.queryID = TQuery.queryID AND \
-                                                        DQ.diskID IN (SELECT diskID FROM DQ WHERE queryID = {id}) \
+                                                    FROM DQ \
+                                                    WHERE DQ.queryID = TQuery.queryID AND \
+                                                            DQ.diskID IN (SELECT diskID FROM DQ WHERE queryID = {id}) \
                                                 ) AS sharedDisks \
                         FROM TQuery\
                         ) AS tmpT \
@@ -559,10 +567,6 @@ def test_avg_q_size_on_disk():
     x = averageSizeQueriesOnDisk(10)
     assert("21" in str(x))
 
-    print("######")
-    print(diskTotalRAM(1))
-    print("######")
-
     removeQueryFromDisk(q1, 10)
     x = averageSizeQueriesOnDisk(10)
     assert("30" in str(x))
@@ -622,7 +626,26 @@ def can_be_added_ram_test():
 
     print("after 3rd")
 
-def view_test():
+def total_ram_view():
+    dropTables()
+    createTables()
+
+    d1 = Disk(diskID=7, company="z", speed=100, free_space=80, cost=5)
+    d2 = Disk(diskID=13, company="z", speed=100, free_space=40, cost=5)
+    d3 = Disk(diskID=1, company="z", speed=100, free_space=2, cost=5)
+    d4 = Disk(diskID=2, company="z", speed=100, free_space=3, cost=5)
+    d5 = Disk(diskID=3, company="z", speed=100, free_space=4, cost=5)
+    d6 = Disk(diskID=4, company="z", speed=100, free_space=11, cost=5)
+    d7 = Disk(diskID=5, company="z", speed=90, free_space=51, cost=5)
+
+    addDisk(d1)
+    addDisk(d2)
+    addDisk(d3)
+    addDisk(d4)
+    addDisk(d5)
+    addDisk(d6)
+    addDisk(d7)
+
     r1 = RAM(ramID=1, company='z', size=3)
     r2 = RAM(ramID=2, company='t', size=30)
     r3 = RAM(ramID=3, company='k', size=50)
@@ -630,10 +653,34 @@ def view_test():
     addRAM(r2)
     addRAM(r3)
 
+    addRAMToDisk(1,1)
+    addRAMToDisk(1,2)
+    addRAMToDisk(1,3)
+    addRAMToDisk(1,4)
+
+    addRAMToDisk(2,1)
+    addRAMToDisk(2,2)
+    addRAMToDisk(2,3)
+
+    addRAMToDisk(3,1)
+    addRAMToDisk(3,2)
+    addRAMToDisk(3,7)
+
+    print(diskTotalRAM(1))
+    print(diskTotalRAM(2))
+    print(diskTotalRAM(3))
+    print(diskTotalRAM(4))
+    print(diskTotalRAM(5))
+    print(diskTotalRAM(7))
+
+
+
+
 
 
 
 if __name__ == '__main__':
+    total_ram_view()
     # dropTables()
     # createTables()
     # test_getCloseQueries()
@@ -643,17 +690,14 @@ if __name__ == '__main__':
     # test_avg_q_size_on_disk()
     # test_deleteQuery()
     # can_be_added_ram_test()
-    #
+
     # dropTables()
     # createTables()
     # deleteDisk(2)
     # addDisk(Disk(1, "HP", 1, 1, 1))
     # mostAvailableDisks()  # should be [1]
 
-    dropTables()
-    createTables()
-    test_avg_q_size_on_disk()
-
+    #
     # for test in [test_getCloseQueries, test_getCostForPurpose, test_isCompanyExclusive, test_isCompanyExclusive,\
     #              test_avg_q_size_on_disk, test_deleteQuery, can_be_added_ram_test]:
     #     dropTables()
