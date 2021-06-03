@@ -99,6 +99,23 @@ def createTables():
                                                      ), 0) AS totalRam \
                         FROM TDisk")
 
+#use cases: getQueriesCanBeAddedToDisk, getQueriesCanBeAddedToDiskAndRAM, mostAvailableDisks
+# CREATE VIEW D_can_run_Q as (
+#     SELECT  diskID, queryID \
+#     FROM    TQuery, (SELECT free_space FROM TDisk) \
+#     WHERE   size <= free_space
+# )
+
+#use cases: getQueriesCanBeAddedToDiskAndRAM, getTotalRAM
+# CREATE VIEW D_total_RAM as (
+#     SELECT diskID, COALESCE(SUM(size), 0)\
+#     FROM TDisk, TRAM \
+#     WHERE ramID in (SELECT ramID FROM DR WHERE TDisk.diskID = DR.diskID)
+
+
+# DROP VIEW D_can_run_Q
+# DROP VIEW D_total_RAM
+
 
 def clearTables():
     sql_command("DELETE FROM TQuery;\
@@ -117,9 +134,9 @@ def dropTables():
 
 def addQuery(query: Query) -> ReturnValue:
     q = sql.SQL("INSERT INTO TQuery(queryID, purpose, size) VALUES({i}, {p}, {s})").format(
-                                                                                    i=sql.Literal(query.getQueryID()),
-                                                                                    p=sql.Literal(query.getPurpose()),
-                                                                                    s=sql.Literal(query.getSize()))
+        i=sql.Literal(query.getQueryID()),
+        p=sql.Literal(query.getPurpose()),
+        s=sql.Literal(query.getSize()))
     return sql_command(q).ret_val
 
 
@@ -144,7 +161,7 @@ def deleteQuery(query: Query) -> ReturnValue:
 
 
 def addDisk(disk: Disk) -> ReturnValue:
-    q = sql.SQL("INSERT INTO TDisk(diskID, company, speed, free_space, cost) VALUES({i}, {comp}, {sp}, {fs}, {cost})")\
+    q = sql.SQL("INSERT INTO TDisk(diskID, company, speed, free_space, cost) VALUES({i}, {comp}, {sp}, {fs}, {cost})") \
         .format(i=sql.Literal(disk.getDiskID()),
                 comp=sql.Literal(disk.getCompany()),
                 sp=sql.Literal(disk.getSpeed()),
@@ -170,9 +187,9 @@ def deleteDisk(diskID: int) -> ReturnValue:
 
 def addRAM(ram: RAM) -> ReturnValue:
     q = sql.SQL("INSERT INTO TRam(ramID, company, size) VALUES({id}, {comp}, {size})").format(
-                                                                                    id=sql.Literal(ram.getRamID()),
-                                                                                    comp=sql.Literal(ram.getCompany()),
-                                                                                    size=sql.Literal(ram.getSize()))
+        id=sql.Literal(ram.getRamID()),
+        comp=sql.Literal(ram.getCompany()),
+        size=sql.Literal(ram.getSize()))
     return sql_command(q).ret_val
 
 
@@ -369,5 +386,320 @@ def getCloseQueries(queryID: int) -> List[int]:
         return []
 
 
-# if __name__ == '__main__':
-#     pass
+def test_getCloseQueries():
+    for i in range(1, 10):
+        addDisk(Disk(i, "company_" + str(i), 10 * i, 100 * i, 1000 * i))
+
+    q1 = Query(10, "Aaa", 1)
+    addQuery(q1)
+    q2 = Query(2, "Aaa", 1)
+    addQuery(q2)
+    q3 = Query(3, "Aaa", 1)
+    addQuery(q3)
+    addQueryToDisk(q1, 1)
+    addQueryToDisk(q1, 2)
+    addQueryToDisk(q2, 2)
+    addQueryToDisk(q2, 3)
+    addQueryToDisk(q2, 4)
+
+    assert (getCloseQueries(10) == [2])
+    assert (getCloseQueries(2) == [])
+    assert (getCloseQueries(3) == [2, 10])
+    assert (getCloseQueries(666) == [2, 3, 10])
+    print("@@@ PASS test_getCloseQueries @@@" + " however, wait for more tests...")
+
+
+def test_getCostForPurpose():
+    for i in range(1, 10):
+        addDisk(Disk(i, "company_" + str(i), 10 * i, 100 * i, 10))
+    # for i in range(1,10):
+    #     addQuery(Query(i, "A", i))
+
+    q1 = Query(1, "Aaa", 1)
+    addQuery(q1)
+    q2 = Query(2, "Aaa", 20)
+    addQuery(q2)
+    q3 = Query(3, "Aaa", 30)
+    addQuery(q3)
+    q4 = Query(4, "B", 40)
+    addQuery(q4)
+    q5 = Query(5, "B", 50)
+    addQuery(q5)
+
+    addQueryToDisk(q1, 1)
+    addQueryToDisk(q2, 1)
+    addQueryToDisk(q3, 2)
+    addQueryToDisk(q4, 1)
+    addQueryToDisk(q5, 2)
+    # print(getCostForPurpose("Aaa"))
+    assert(getCostForPurpose("Aaa") == 510)
+    assert(getCostForPurpose("B") == 900)
+    print("@@@ PASS test_getCostForPurpose @@@" + " however, wait for more tests...")
+
+
+def test_getConflictingDisks():
+    for i in range(1, 5):
+        addDisk(Disk(i, "company_" + str(i), 10 * i, 100 * i, 1000 * i))
+        q1 = Query(i, "Aaa", 1)
+        addQuery(q1)
+        addQueryToDisk(q1, i)
+
+    assert(str(getConflictingDisks()) == "\n")
+
+    q1 = Query(10, "Aaa", 1)
+    addQuery(q1)
+    for i in range(1, 10):
+        addDisk(Disk(10 + i, "company_" + str(i), 10 * i, 100 * i, 1000 * i))
+        addQueryToDisk(q1, 10 + i)
+
+    # print(str(getConflictingDisks()))
+    assert(str(getConflictingDisks()).replace(' ', '').replace('\n', '') == 'diskid1112131415')
+
+    removeQueryFromDisk(q1, 13)
+    removeQueryFromDisk(q1, 14)
+    removeQueryFromDisk(q1, 15)
+    # print(str(getConflictingDisks()))
+    assert (str(getConflictingDisks()).replace(' ', '').replace('\n', '') == 'diskid1112161718')
+
+    q1 = Query(20, "Bbb", 1)
+    addQuery(q1)
+    for i in range(1, 10, 2):
+        addQueryToDisk(q1, 10 + i)
+
+    # print(str(getConflictingDisks()))
+    assert (str(getConflictingDisks()).replace(' ', '').replace('\n', '') == 'diskid1112131516')
+    print("@@@ PASS test_getConflictingDisks @@@" + " however, wait for more tests...")
+
+
+def test_isCompanyExclusive():
+    for i in range(1, 10):
+        addDisk(Disk(i, "company_"+str(i), 10*i, 100*i, 1000*i))
+        # print(getDiskProfile(i))
+        assert(isCompanyExclusive(i) is True)
+        addRAM(RAM(i, "company_" + str(i), i * i))
+        addRAMToDisk(i, i)
+        assert(isCompanyExclusive(i) is True)
+
+    assert(isCompanyExclusive(9999) is False)
+    assert(isCompanyExclusive(-999) is False)
+
+    for i in range(1, 10):
+        addRAM(RAM(10+i, "company_"+str(i), i*i))
+        addRAMToDisk(10+i, 1)
+    # print(isCompanyExclusive(1))
+    assert(isCompanyExclusive(1) is False)
+
+    for i in range(1, 10):
+        addRAM(RAM(100+i, "company_2", i*i))
+        addRAMToDisk(100+i, 2)
+    # print(isCompanyExclusive(2))
+    assert(isCompanyExclusive(2) is True)
+    addRAM(RAM(666, "sdjfbskdf", 66666))
+    addRAMToDisk(666, 2)
+    assert(isCompanyExclusive(2) is False)
+    removeRAMFromDisk(666, 2)
+    assert(isCompanyExclusive(2) is True)
+    addRAMToDisk(666, 2)
+    assert(isCompanyExclusive(2) is False)
+    deleteRAM(666)
+    assert(isCompanyExclusive(2) is True)
+
+    print("@@@ PASS test_isCompanyExclusive @@@")
+
+def test_deleteQuery():
+    addDisk(Disk(diskID=10, company="z", speed=100, free_space=7654321, cost=5))
+    q1 = Query(1, "test1", 1)
+    q2 = Query(2, "test2", 20)
+    q3 = Query(3, "test2", 300)
+    q4 = Query(4, "test4", 4000)
+    q5 = Query(5, "test5", 50000)
+    addQuery(q1)
+    addQuery(q2)
+    addQuery(q3)
+    addQuery(q4)
+    addQuery(q5)
+    addQueryToDisk(q1, 10)
+    addQueryToDisk(q2, 10)
+    addQueryToDisk(q3, 10)
+    deleteQuery(q3)
+    assert("7654300" in str(getDiskProfile(10)))
+    deleteQuery(q1)
+    assert("7654301" in str(getDiskProfile(10)))
+    deleteQuery(q2)
+    assert("7654321" in str(getDiskProfile(10)))
+
+    addQueryToDisk(q4, 10)
+    assert("7650321" in str(getDiskProfile(10)))
+    addQueryToDisk(q5, 10)
+    assert("7600321" in str(getDiskProfile(10)))
+    deleteQuery(q4)
+    assert("7604321" in str(getDiskProfile(10)))
+    deleteQuery(q5)
+    assert("7654321" in str(getDiskProfile(10)))
+    print("@@@ PASS test_deleteQuery @@@")
+
+
+def test_avg_q_size_on_disk():
+    addDisk(Disk(diskID=10, company="z", speed=100, free_space=80, cost=5))
+    q1 = Query(1, "test1", 3)
+    q2 = Query(2, "test2", 4)
+    q3 = Query(3, "test2", 50)
+    q4 = Query(5, "test4", 10)
+
+    addQuery(q1)
+    addQuery(q2)
+    addQuery(q3)
+
+    addQueryToDisk(q1, 10)
+    addQueryToDisk(q2, 10)
+    addQueryToDisk(q3, 10)
+
+    x = averageSizeQueriesOnDisk(10)
+    assert("19" in str(x))
+    deleteQuery(q2)
+    x = averageSizeQueriesOnDisk(10)
+    assert("26.5" in str(x))
+    addQuery(q4)
+    addQueryToDisk(q4, 10)
+    x = averageSizeQueriesOnDisk(10)
+    assert("21" in str(x))
+    # removeQueryFromDisk(q2, 10)  # nothing happens
+    x = averageSizeQueriesOnDisk(10)
+    assert("21" in str(x))
+
+    removeQueryFromDisk(q1, 10)
+    x = averageSizeQueriesOnDisk(10)
+    assert("30" in str(x))
+
+    print("test_avg_q_size_on_disk - SUCCESS")
+
+def can_be_added_ram_test():
+
+    d1 = Disk(diskID=7, company="z", speed=100, free_space=80, cost=5)
+    d2 = Disk(diskID=13, company="z", speed=100, free_space=40, cost=5)
+    d3 = Disk(diskID=1, company="z", speed=100, free_space=2, cost=5)
+    d4 = Disk(diskID=2, company="z", speed=100, free_space=3, cost=5)
+    d5 = Disk(diskID=3, company="z", speed=100, free_space=4, cost=5)
+    d6 = Disk(diskID=4, company="z", speed=100, free_space=11, cost=5)
+    d7 = Disk(diskID=5, company="z", speed=90, free_space=51, cost=5)
+
+    addDisk(d1)
+    addDisk(d2)
+    addDisk(d3)
+    addDisk(d4)
+    addDisk(d5)
+    addDisk(d6)
+    addDisk(d7)
+
+
+    q1 = Query(1, "test1", 3)
+    q2 = Query(2, "test2", 4)
+    q3 = Query(3, "test2", 50)
+    q4 = Query(4, "test4", 10)
+    addQuery(q1)
+    addQuery(q2)
+    addQuery(q3)
+    addQuery(q4)
+
+    r1 = RAM(ramID=1, company='z', size=3)
+    r2 = RAM(ramID=2, company='t', size=30)
+    r3 = RAM(ramID=3, company='k', size=50)
+    addRAM(r1)
+    addRAM(r2)
+    addRAM(r3)
+
+    print(getQueriesCanBeAddedToDiskAndRAM(7))
+    print(getQueriesCanBeAddedToDiskAndRAM(13))
+
+    print("after 1st")
+
+    addRAMToDisk(1,7)
+    addRAMToDisk(1,13)
+    print(getQueriesCanBeAddedToDiskAndRAM(7))
+    print(getQueriesCanBeAddedToDiskAndRAM(13))
+
+    print("after 2nd")
+    addRAMToDisk(3,7)
+    addRAMToDisk(2,13)
+    print(getQueriesCanBeAddedToDiskAndRAM(7))
+    print(getQueriesCanBeAddedToDiskAndRAM(13))
+
+    print("after 3rd")
+
+def total_ram_view():
+    dropTables()
+    createTables()
+
+    d1 = Disk(diskID=7, company="z", speed=100, free_space=80, cost=5)
+    d2 = Disk(diskID=13, company="z", speed=100, free_space=40, cost=5)
+    d3 = Disk(diskID=1, company="z", speed=100, free_space=2, cost=5)
+    d4 = Disk(diskID=2, company="z", speed=100, free_space=3, cost=5)
+    d5 = Disk(diskID=3, company="z", speed=100, free_space=4, cost=5)
+    d6 = Disk(diskID=4, company="z", speed=100, free_space=11, cost=5)
+    d7 = Disk(diskID=5, company="z", speed=90, free_space=51, cost=5)
+
+    addDisk(d1)
+    addDisk(d2)
+    addDisk(d3)
+    addDisk(d4)
+    addDisk(d5)
+    addDisk(d6)
+    addDisk(d7)
+
+    r1 = RAM(ramID=1, company='z', size=3)
+    r2 = RAM(ramID=2, company='t', size=30)
+    r3 = RAM(ramID=3, company='k', size=50)
+    addRAM(r1)
+    addRAM(r2)
+    addRAM(r3)
+
+    addRAMToDisk(1,1)
+    addRAMToDisk(1,2)
+    addRAMToDisk(1,3)
+    addRAMToDisk(1,4)
+
+    addRAMToDisk(2,1)
+    addRAMToDisk(2,2)
+    addRAMToDisk(2,3)
+
+    addRAMToDisk(3,1)
+    addRAMToDisk(3,2)
+    addRAMToDisk(3,7)
+
+    print(diskTotalRAM(1))
+    print(diskTotalRAM(2))
+    print(diskTotalRAM(3))
+    print(diskTotalRAM(4))
+    print(diskTotalRAM(5))
+    print(diskTotalRAM(7))
+
+
+
+
+
+
+
+if __name__ == '__main__':
+    # total_ram_view()
+    # dropTables()
+    # createTables()
+    # test_getCloseQueries()
+    # test_getCostForPurpose()
+    # test_getConflictingDisks()
+    # test_isCompanyExclusive()
+    # test_avg_q_size_on_disk()
+    # test_deleteQuery()
+    # can_be_added_ram_test()
+
+    # dropTables()
+    # createTables()
+    # deleteDisk(2)
+    # addDisk(Disk(1, "HP", 1, 1, 1))
+    # mostAvailableDisks()  # should be [1]
+
+
+    for test in [test_getCloseQueries, test_getCostForPurpose, test_isCompanyExclusive, test_isCompanyExclusive, \
+                 test_avg_q_size_on_disk, test_deleteQuery, can_be_added_ram_test, total_ram_view]:
+        dropTables()
+        createTables()
+        test()
